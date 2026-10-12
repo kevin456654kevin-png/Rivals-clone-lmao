@@ -57,7 +57,7 @@ function addRamp(group: THREE.Group, solids: Solid[], def: RampDef) {
 
 /**
  * Wedge geometry for a ramp: a flat-shaded solid whose top follows rampHeight().
- * Rendered double-sided so triangle winding never has to be exact.
+ * Triangles are wound outwards so the faces are front-facing from every side.
  */
 function rampGeometry(s: RampSolid): THREE.BufferGeometry {
   const corners: [number, number][] = [
@@ -85,11 +85,17 @@ function rampGeometry(s: RampSolid): THREE.BufferGeometry {
   const positions: number[] = [];
   const normals: number[] = [];
   const addTri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3) => {
-    const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
+    let n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
     if (n.lengthSq() < 1e-12) return; // degenerate (e.g. zero-height side)
-    n.normalize();
     const mid = new THREE.Vector3().add(a).add(b).add(c).multiplyScalar(1 / 3);
-    if (n.dot(mid.sub(centre)) < 0) n.negate(); // make normals point outwards
+    // The wedge is convex, so a triangle faces outwards when its normal points away
+    // from the interior point. Flip the winding (not just the normal) when it doesn't,
+    // otherwise the front face is culled and the slope renders see-through.
+    if (n.dot(mid.clone().sub(centre)) < 0) {
+      [b, c] = [c, b];
+      n = n.negate();
+    }
+    n.normalize();
     for (const p of [a, b, c]) {
       positions.push(p.x, p.y, p.z);
       normals.push(n.x, n.y, n.z);
