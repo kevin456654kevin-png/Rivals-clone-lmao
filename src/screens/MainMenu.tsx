@@ -1,9 +1,11 @@
 export default function MainMenu({
   onHost,
   onJoin,
+  onSettings,
 }: {
   onHost: () => void;
   onJoin: () => void;
+  onSettings: () => void;
 }) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-black p-8 text-white">
@@ -29,12 +31,19 @@ export default function MainMenu({
           >
             Join Room
           </button>
+          <button
+            onClick={onSettings}
+            className="w-full rounded-xl border border-white/10 px-6 py-3 font-semibold text-white/70 transition hover:bg-white/5 active:scale-[0.98]"
+          >
+            Settings
+          </button>
         </div>
 
         <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-left text-xs leading-relaxed text-white/50">
           <p className="mb-1 font-semibold text-white/70">How it works</p>
           Host picks a map and bans weapons, then shares a 5-letter room code. Your opponent joins with
-          that code — no servers, no sign-up, connection is made directly browser-to-browser.
+          that code — no servers, no sign-up, connection is made directly browser-to-browser. Matches start
+          the moment both players lock in, and you can rematch straight from the results screen.
         </div>
       </div>
     </div>
