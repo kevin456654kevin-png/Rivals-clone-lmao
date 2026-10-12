@@ -14,6 +14,7 @@ export interface WeaponDef {
   pellets?: number; // for shotguns
   spread?: number; // radians
   projectileSpeed?: number; // for misc throwables, 0 = hitscan
+  channelMs?: number; // for items that must be held to use (medkit)
   description: string;
 }
 
