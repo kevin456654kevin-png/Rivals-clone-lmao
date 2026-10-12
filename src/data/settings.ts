@@ -141,6 +141,8 @@ const KEY_NAMES: Record<string, string> = {
   Mouse2: 'Middle Mouse',
   Mouse3: 'Mouse 4',
   Mouse4: 'Mouse 5',
+  ScrollDown: 'Scroll ↓',
+  ScrollUp: 'Scroll ↑',
 };
 
 export function keyLabel(code: string): string {
