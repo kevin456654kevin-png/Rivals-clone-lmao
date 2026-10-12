@@ -1,8 +1,13 @@
 import * as THREE from 'three';
+import { type Solid, resolveCeilings, resolveHorizontal, resolveVertical } from './collision';
 
 /**
- * Source-engine inspired movement: ground/air acceleration, bunny-hopping
- * (no speed penalty on jump, generous air control) and crouch-sprint sliding.
+ * Source-inspired movement: ground/air acceleration and crouch-sprint sliding.
+ *
+ * Bunny-hopping is deliberately throttled:
+ *  - air strafing accelerates much more slowly than before (airAccel / airWishSpeed),
+ *  - horizontal air speed is hard-capped (airSpeedLimit) so strafing can't build forever,
+ *  - re-jumping within `bhopWindow` of landing costs horizontal speed (bhopSpeedRetention).
  */
 
 export const MOVE = {
@@ -10,8 +15,11 @@ export const MOVE = {
   sprintSpeed: 9.2,
   crouchSpeed: 3.2,
   groundAccel: 14,
-  airAccel: 70,
-  airSpeedCap: 1.6,
+  airAccel: 16, // was 70
+  airWishSpeed: 2.6, // caps the per-frame speed gain from air control (was 14.7)
+  airSpeedLimit: 11, // hard cap on horizontal speed while airborne
+  bhopWindow: 0.12, // seconds after landing in which a jump counts as a bunny hop
+  bhopSpeedRetention: 0.97, // horizontal speed kept per bunny hop (3% lost each time)
   friction: 7.5,
   gravity: 26,
   jumpVelocity: 9.2,
@@ -28,24 +36,26 @@ export const MOVE = {
 };
 
 export interface PlayerPhysicsState {
-  position: THREE.Vector3;
+  position: THREE.Vector3; // feet position
   velocity: THREE.Vector3;
   grounded: boolean;
   sliding: boolean;
   slideTime: number;
   crouching: boolean;
   height: number;
+  timeSinceLand: number; // seconds spent grounded since the last landing
 }
 
 export function createPhysicsState(spawn: [number, number, number]): PlayerPhysicsState {
   return {
     position: new THREE.Vector3(spawn[0], spawn[1], spawn[2]),
     velocity: new THREE.Vector3(0, 0, 0),
-    grounded: false,
+    grounded: true,
     sliding: false,
     slideTime: 0,
     crouching: false,
     height: MOVE.standHeight,
+    timeSinceLand: 0,
   };
 }
 
@@ -77,6 +87,9 @@ export function stepPhysics(state: PlayerPhysicsState, input: MoveInput, dt: num
   const wishDirLocal = new THREE.Vector3(input.right, 0, -input.forward);
   if (wishDirLocal.lengthSq() > 0) wishDirLocal.normalize();
   const wishDir = wishDirLocal.applyAxisAngle(new THREE.Vector3(0, 1, 0), input.yaw);
+
+  if (state.grounded) state.timeSinceLand += dt;
+  else state.timeSinceLand = 0;
 
   const horizVel = new THREE.Vector3(state.velocity.x, 0, state.velocity.z);
   const speed = horizVel.length();
@@ -134,12 +147,22 @@ export function stepPhysics(state: PlayerPhysicsState, input: MoveInput, dt: num
       const maxSpeed = input.crouch ? MOVE.crouchSpeed : input.sprint ? MOVE.sprintSpeed : MOVE.walkSpeed;
       accelerate(state.velocity, wishDir, maxSpeed, MOVE.groundAccel, dt);
     } else {
-      accelerate(state.velocity, wishDir, MOVE.airSpeedCap * MOVE.sprintSpeed, MOVE.airAccel, dt);
+      accelerate(state.velocity, wishDir, MOVE.airWishSpeed, MOVE.airAccel, dt);
+      const airSpeed = Math.hypot(state.velocity.x, state.velocity.z);
+      if (airSpeed > MOVE.airSpeedLimit) {
+        const s = MOVE.airSpeedLimit / airSpeed;
+        state.velocity.x *= s;
+        state.velocity.z *= s;
+      }
     }
   }
 
-  // Jump (bunny-hop friendly: no landing penalty, immediate re-jump available)
+  // Jump. Re-jumping right after landing (bunny hop) bleeds horizontal speed.
   if (input.jumpPressed && state.grounded && !state.sliding) {
+    if (state.timeSinceLand < MOVE.bhopWindow) {
+      state.velocity.x *= MOVE.bhopSpeedRetention;
+      state.velocity.z *= MOVE.bhopSpeedRetention;
+    }
     state.velocity.y = MOVE.jumpVelocity;
     state.grounded = false;
   }
@@ -155,50 +178,16 @@ export function stepPhysics(state: PlayerPhysicsState, input: MoveInput, dt: num
   state.height += (targetHeight - state.height) * Math.min(1, MOVE.crouchHeightLerp * dt);
 }
 
-export function resolveGroundAndWalls(
-  state: PlayerPhysicsState,
-  colliders: THREE.Box3[],
-  worldSize: number,
-) {
-  // Floor
-  if (state.position.y <= 0) {
-    state.position.y = 0;
-    state.velocity.y = 0;
-    state.grounded = true;
-  } else {
-    state.grounded = false;
-  }
-
+export function resolveGroundAndWalls(state: PlayerPhysicsState, solids: Solid[], worldSize: number) {
   // World bounds
   const half = worldSize / 2 - 0.6;
   state.position.x = THREE.MathUtils.clamp(state.position.x, -half, half);
   state.position.z = THREE.MathUtils.clamp(state.position.z, -half, half);
 
-  // AABB collision resolution against walls (simple cylinder-ish via radius box)
   const r = MOVE.playerRadius;
-  const feet = state.position.y;
-  const head = state.position.y + state.height;
-  for (const box of colliders) {
-    if (head < box.min.y || feet > box.max.y) continue;
-    const px = state.position.x;
-    const pz = state.position.z;
-    const closestX = THREE.MathUtils.clamp(px, box.min.x, box.max.x);
-    const closestZ = THREE.MathUtils.clamp(pz, box.min.z, box.max.z);
-    const dx = px - closestX;
-    const dz = pz - closestZ;
-    const distSq = dx * dx + dz * dz;
-    if (distSq < r * r) {
-      const dist = Math.sqrt(distSq) || 0.0001;
-      const overlap = r - dist;
-      const nx = dx / dist;
-      const nz = dz / dist;
-      state.position.x += nx * overlap;
-      state.position.z += nz * overlap;
-      const vn = state.velocity.x * nx + state.velocity.z * nz;
-      if (vn < 0) {
-        state.velocity.x -= vn * nx;
-        state.velocity.z -= vn * nz;
-      }
-    }
-  }
+  // Two passes so pushing out of one wall doesn't leave us inside a neighbour
+  resolveHorizontal(state.position, state.velocity, state.height, solids, r);
+  resolveHorizontal(state.position, state.velocity, state.height, solids, r);
+  resolveCeilings(state.position, state.velocity, state.height, solids, r);
+  state.grounded = resolveVertical(state.position, state.velocity, solids);
 }

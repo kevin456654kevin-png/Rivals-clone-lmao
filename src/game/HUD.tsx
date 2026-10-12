@@ -2,7 +2,6 @@ import type { WeaponDef } from '../types';
 
 export interface HudState {
   hp: number;
-  enemyHp: number;
   ammo: number;
   magSize: number;
   reloading: boolean;
@@ -13,11 +12,14 @@ export interface HudState {
   speed: number;
   medkitUsed: boolean;
   connectionLost: boolean;
+  damageDealt: number;
+  damageTaken: number;
+  hits: number;
+  score: { wins: number; losses: number };
 }
 
 export function HUD({ state }: { state: HudState }) {
   const hpPct = Math.max(0, Math.min(100, state.hp));
-  const enemyPct = Math.max(0, Math.min(100, state.enemyHp));
   return (
     <div className="pointer-events-none absolute inset-0 select-none font-sans">
       {/* Crosshair */}
@@ -32,7 +34,16 @@ export function HUD({ state }: { state: HudState }) {
         </div>
       )}
 
-      {/* Health bars */}
+      {/* Score */}
+      <div className="absolute left-1/2 top-4 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-black/45 px-4 py-1.5 font-mono text-sm font-bold text-white shadow">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-white/60">You</span>
+        <span className="text-emerald-300">{state.score.wins}</span>
+        <span className="text-white/40">–</span>
+        <span className="text-red-300">{state.score.losses}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-white/60">Opp</span>
+      </div>
+
+      {/* Your health */}
       <div className="absolute bottom-6 left-6 w-56 space-y-1.5">
         <div className="text-xs font-semibold uppercase tracking-wide text-white/70">You</div>
         <div className="h-3 w-full overflow-hidden rounded-full bg-black/50 ring-1 ring-white/20">
@@ -44,15 +55,21 @@ export function HUD({ state }: { state: HudState }) {
         <div className="text-sm font-bold text-white">{Math.max(0, Math.round(state.hp))} HP</div>
       </div>
 
-      <div className="absolute bottom-6 right-6 w-56 space-y-1.5 text-right">
-        <div className="text-xs font-semibold uppercase tracking-wide text-white/70">Opponent</div>
-        <div className="h-3 w-full overflow-hidden rounded-full bg-black/50 ring-1 ring-white/20">
-          <div
-            className="ml-auto h-full rounded-full bg-gradient-to-l from-red-500 to-red-400 transition-all duration-150"
-            style={{ width: `${enemyPct}%` }}
-          />
+      {/* Damage counter */}
+      <div className="absolute bottom-6 right-6 w-56 space-y-1 rounded-lg bg-black/40 p-3 text-right font-mono text-xs text-white/80">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-white/60">Match damage</div>
+        <div className="flex justify-between">
+          <span className="text-white/60">Dealt</span>
+          <span className="font-bold text-amber-300">{Math.round(state.damageDealt)}</span>
         </div>
-        <div className="text-sm font-bold text-white">{Math.max(0, Math.round(state.enemyHp))} HP</div>
+        <div className="flex justify-between">
+          <span className="text-white/60">Taken</span>
+          <span className="font-bold text-red-300">{Math.round(state.damageTaken)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-white/60">Hits</span>
+          <span className="font-bold text-white">{state.hits}</span>
+        </div>
       </div>
 
       {/* Weapon / ammo */}
@@ -99,8 +116,8 @@ export function HUD({ state }: { state: HudState }) {
         </div>
       )}
 
-      {/* Speed readout (helps players learn bhop timing) */}
-      <div className="absolute top-6 right-6 rounded bg-black/40 px-3 py-1 text-xs font-mono text-white/70">
+      {/* Speed readout (helps players learn movement timing) */}
+      <div className="absolute right-6 top-6 rounded bg-black/40 px-3 py-1 text-xs font-mono text-white/70">
         {Math.round(state.speed)} u/s
       </div>
     </div>

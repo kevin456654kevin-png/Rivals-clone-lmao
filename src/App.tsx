@@ -1,24 +1,37 @@
 import { useCallback, useRef, useState } from 'react';
 import { Connection } from './net/Connection';
-import type { Loadout, NetMessage, Role, RoomConfig } from './types';
+import type { GameResult, Loadout, MatchStats, NetMessage, Role, RoomConfig } from './types';
 import { getMap, MAPS } from './data/maps';
+import { loadSettings, saveSettings, type Settings } from './data/settings';
 import MainMenu from './screens/MainMenu';
 import HostSetup from './screens/HostSetup';
 import JoinScreen from './screens/JoinScreen';
 import LobbyRoom from './screens/LobbyRoom';
-import Countdown from './screens/Countdown';
 import LoadoutSelect from './screens/LoadoutSelect';
+import GameOver from './screens/GameOver';
+import SettingsPanel from './screens/SettingsPanel';
 import GameCanvas from './game/GameCanvas';
 
-type Stage = 'menu' | 'host-setup' | 'join' | 'lobby' | 'countdown' | 'loadout' | 'game' | 'gameover';
+type Stage = 'menu' | 'settings' | 'host-setup' | 'join' | 'lobby' | 'loadout' | 'game' | 'gameover';
+
+const EMPTY_STATS: MatchStats = { damageDealt: 0, damageTaken: 0, hits: 0 };
 
 export default function App() {
-  const [stage, setStage] = useState<Stage>('menu');
+  const [stage, setStageState] = useState<Stage>('menu');
+  // Mirrors `stage` for use inside network callbacks that outlive a render
+  const stageRef = useRef<Stage>('menu');
+  const setStage = useCallback((s: Stage) => {
+    stageRef.current = s;
+    setStageState(s);
+  }, []);
+
   const connRef = useRef<Connection | null>(null);
   const roleRef = useRef<Role>('host');
   const configRef = useRef<RoomConfig>({ mapId: MAPS[0].id, bannedWeapons: [] });
   const localLoadoutRef = useRef<Loadout | null>(null);
   const remoteLoadoutRef = useRef<Loadout | null>(null);
+  const rematchLocalRef = useRef(false);
+  const rematchRemoteRef = useRef(false);
   const handlersAttached = useRef(false);
 
   const [roomCode, setRoomCode] = useState('');
@@ -27,19 +40,47 @@ export default function App() {
   const [hostStatus, setHostStatus] = useState<'idle' | 'creating' | 'error'>('idle');
   const [joinStatus, setJoinStatus] = useState<'idle' | 'joining' | 'error'>('idle');
   const [joinError, setJoinError] = useState('');
-  const [countdownStartAt, setCountdownStartAt] = useState<number>(Date.now());
-  const [gameResult, setGameResult] = useState<'win' | 'lose' | 'disconnected' | null>(null);
+  const [gameResult, setGameResult] = useState<GameResult | null>(null);
+  const [gameStats, setGameStats] = useState<MatchStats>(EMPTY_STATS);
+  const [score, setScore] = useState({ wins: 0, losses: 0 });
+  const [rematchLocal, setRematchLocal] = useState(false);
+  const [rematchRemote, setRematchRemote] = useState(false);
+  const [settings, setSettings] = useState<Settings>(() => loadSettings());
 
-  const checkBothLoadoutsReady = useCallback(() => {
-    if (localLoadoutRef.current && remoteLoadoutRef.current) {
-      setStage('game');
-    }
-  }, []);
+  function updateSettings(next: Settings) {
+    setSettings(next);
+    saveSettings(next);
+  }
 
   const getConn = useCallback(() => {
     if (!connRef.current) connRef.current = new Connection();
     return connRef.current;
   }, []);
+
+  /** Clear loadouts and rematch flags, then go to loadout selection. */
+  const enterLoadout = useCallback(() => {
+    localLoadoutRef.current = null;
+    remoteLoadoutRef.current = null;
+    rematchLocalRef.current = false;
+    rematchRemoteRef.current = false;
+    setRematchLocal(false);
+    setRematchRemote(false);
+    setStage('loadout');
+  }, [setStage]);
+
+  /** Both players have locked in: the match starts immediately. */
+  const beginMatch = useCallback(() => {
+    rematchLocalRef.current = false;
+    rematchRemoteRef.current = false;
+    setRematchLocal(false);
+    setRematchRemote(false);
+    setStage('game');
+  }, [setStage]);
+
+  const checkBothLoadoutsReady = useCallback(() => {
+    if (stageRef.current !== 'loadout') return;
+    if (localLoadoutRef.current && remoteLoadoutRef.current) beginMatch();
+  }, [beginMatch]);
 
   const attachHandlers = useCallback(
     (conn: Connection) => {
@@ -55,21 +96,49 @@ export default function App() {
         setOpponentConnected(false);
       });
       conn.onMessage((msg: NetMessage) => {
+        const inMatchOrOver = stageRef.current === 'game' || stageRef.current === 'gameover';
         if (msg.type === 'config') {
           configRef.current = msg.config;
           setConfig(msg.config);
           setStage('lobby');
-        } else if (msg.type === 'start-countdown') {
-          setCountdownStartAt(msg.startAt);
-          setStage('countdown');
+        } else if (msg.type === 'start-match') {
+          enterLoadout();
         } else if (msg.type === 'loadout') {
           remoteLoadoutRef.current = msg.loadout;
           checkBothLoadoutsReady();
+        } else if (msg.type === 'rematch-request') {
+          if (!inMatchOrOver) return;
+          rematchRemoteRef.current = true;
+          setRematchRemote(true);
+          if (rematchLocalRef.current) beginMatch();
+        } else if (msg.type === 'rematch-loadout') {
+          if (inMatchOrOver) enterLoadout();
         }
       });
     },
-    [checkBothLoadoutsReady],
+    [beginMatch, checkBothLoadoutsReady, enterLoadout, setStage],
   );
+
+  function requestRematch() {
+    if (rematchLocalRef.current) return;
+    rematchLocalRef.current = true;
+    setRematchLocal(true);
+    getConn().send({ type: 'rematch-request' });
+    if (rematchRemoteRef.current) beginMatch();
+  }
+
+  function requestLoadoutChange() {
+    getConn().send({ type: 'rematch-loadout' });
+    enterLoadout();
+  }
+
+  function handleGameOver(result: GameResult, stats: MatchStats) {
+    setGameResult(result);
+    setGameStats(stats);
+    if (result === 'win') setScore((p) => ({ ...p, wins: p.wins + 1 }));
+    else if (result === 'lose') setScore((p) => ({ ...p, losses: p.losses + 1 }));
+    setStage('gameover');
+  }
 
   function resetToMenu() {
     connRef.current?.destroy();
@@ -77,11 +146,16 @@ export default function App() {
     handlersAttached.current = false;
     localLoadoutRef.current = null;
     remoteLoadoutRef.current = null;
+    rematchLocalRef.current = false;
+    rematchRemoteRef.current = false;
+    setRematchLocal(false);
+    setRematchRemote(false);
     setOpponentConnected(false);
     setHostStatus('idle');
     setJoinStatus('idle');
     setJoinError('');
     setGameResult(null);
+    setScore({ wins: 0, losses: 0 });
     setStage('menu');
   }
 
@@ -101,7 +175,17 @@ export default function App() {
           attachHandlers(conn);
           setStage('join');
         }}
+        onSettings={() => setStage('settings')}
       />
+    );
+  }
+
+  // ---------- Settings ----------
+  if (stage === 'settings') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white">
+        <SettingsPanel settings={settings} onChange={updateSettings} onBack={() => setStage('menu')} />
+      </div>
     );
   }
 
@@ -165,18 +249,11 @@ export default function App() {
         config={config}
         opponentConnected={opponentConnected}
         onStart={() => {
-          const startAt = Date.now() + 5000;
-          getConn().send({ type: 'start-countdown', startAt });
-          setCountdownStartAt(startAt);
-          setStage('countdown');
+          getConn().send({ type: 'start-match' });
+          enterLoadout();
         }}
       />
     );
-  }
-
-  // ---------- Countdown ----------
-  if (stage === 'countdown') {
-    return <Countdown startAt={countdownStartAt} mapId={config.mapId} onDone={() => setStage('loadout')} />;
   }
 
   // ---------- Loadout ----------
@@ -202,30 +279,28 @@ export default function App() {
         role={roleRef.current}
         map={getMap(config.mapId)}
         localLoadout={localLoadoutRef.current}
-        onGameOver={(result) => {
-          setGameResult(result);
-          setStage('gameover');
-        }}
+        settings={settings}
+        score={score}
+        onSettingsChange={updateSettings}
+        onGameOver={handleGameOver}
+        onLeave={resetToMenu}
       />
     );
   }
 
   // ---------- Game over ----------
   if (stage === 'gameover') {
-    const title =
-      gameResult === 'win' ? 'Victory!' : gameResult === 'lose' ? 'Defeat' : 'Opponent disconnected';
-    const color = gameResult === 'win' ? 'text-emerald-400' : gameResult === 'lose' ? 'text-red-400' : 'text-amber-400';
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-black p-6 text-center text-white">
-        <div className="text-7xl">{gameResult === 'win' ? '🏆' : gameResult === 'lose' ? '💀' : '🔌'}</div>
-        <h1 className={`mt-4 text-5xl font-black ${color}`}>{title}</h1>
-        <button
-          onClick={resetToMenu}
-          className="mt-10 rounded-xl bg-amber-500 px-8 py-4 text-lg font-bold text-black shadow-lg shadow-amber-500/20 transition hover:bg-amber-400"
-        >
-          Back to Menu
-        </button>
-      </div>
+      <GameOver
+        result={gameResult ?? 'disconnected'}
+        stats={gameStats}
+        score={score}
+        rematchLocal={rematchLocal}
+        rematchRemote={rematchRemote}
+        onRematch={requestRematch}
+        onChangeLoadout={requestLoadoutChange}
+        onMenu={resetToMenu}
+      />
     );
   }
 

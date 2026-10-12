@@ -30,6 +30,9 @@ export class Connection {
 
   onClose(cb: () => void) {
     this.closeListeners.push(cb);
+    return () => {
+      this.closeListeners = this.closeListeners.filter((l) => l !== cb);
+    };
   }
 
   onError(cb: (err: string) => void) {

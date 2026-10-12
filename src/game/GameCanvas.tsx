@@ -1,24 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import type { Connection } from '../net/Connection';
-import type { Loadout, MapDef, NetMessage, Role, WeaponDef } from '../types';
+import type { GameResult, Loadout, MapDef, MatchStats, NetMessage, Role, WeaponDef } from '../types';
 import { getWeapon } from '../data/weapons';
+import { BASE_LOOK_SPEED, keyLabel, type ActionId, type Settings } from '../data/settings';
 import { buildMap } from './mapBuilder';
-import {
-  createPhysicsState,
-  MOVE,
-  resolveGroundAndWalls,
-  stepPhysics,
-  type MoveInput,
-} from './movement';
+import { solidAt, groundHeight } from './collision';
+import { createPhysicsState, MOVE, resolveGroundAndWalls, stepPhysics, type MoveInput } from './movement';
 import { HUD, type HudState } from './HUD';
+import SettingsPanel from '../screens/SettingsPanel';
 
-interface Props {
+export interface GameCanvasProps {
   connection: Connection;
   role: Role;
   map: MapDef;
   localLoadout: Loadout;
-  onGameOver: (result: 'win' | 'lose' | 'disconnected') => void;
+  settings: Settings;
+  score: { wins: number; losses: number };
+  onSettingsChange: (s: Settings) => void;
+  onGameOver: (result: GameResult, stats: MatchStats) => void;
+  onLeave: () => void;
 }
 
 interface WeaponRuntime {
@@ -35,13 +36,60 @@ const SLOT_LABELS: Record<keyof Loadout, string> = {
   melee: 'Melee',
   misc: 'Misc',
 };
+const SLOT_ACTIONS: ActionId[] = ['slot1', 'slot2', 'slot3', 'slot4'];
 
-export default function GameCanvas({ connection, role, map, localLoadout, onGameOver }: Props) {
+const GAME_CSS = `
+@keyframes hitmarker {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(1.25); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes dmgPop {
+  0% { opacity: 1; transform: translate(-50%, 0); }
+  65% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -38px); }
+}
+.damage-popup {
+  position: absolute;
+  top: 47%;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: 18px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  animation: dmgPop 0.8s ease-out forwards;
+  pointer-events: none;
+}
+`;
+
+function controlsSummary(b: Settings['bindings']) {
+  const k = (a: ActionId) => keyLabel(b[a]);
+  return `${k('forward')}${k('left')}${k('back')}${k('right')} move · ${k('jump')} jump · ${k('crouch')} crouch · ${k('sprint')} sprint · ${k('fire')} fire · ${k('reload')} reload · ${k('slot1')}–${k('slot4')} weapons · wheel switches`;
+}
+
+export default function GameCanvas(props: GameCanvasProps) {
+  const { connection, role, map, localLoadout } = props;
   const mountRef = useRef<HTMLDivElement>(null);
-  const [locked, setLocked] = useState(false);
+  const hitRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const dmgOverlayRef = useRef<HTMLDivElement>(null);
+
+  // Latest props/settings for code running inside the long-lived effect
+  const propsRef = useRef(props);
+  propsRef.current = props;
+  const settingsRef = useRef(props.settings);
+  settingsRef.current = props.settings;
+  const layoutRef = useRef<() => void>(() => {});
+
+  const [captured, setCaptured] = useState(false);
+  const everCaptured = useRef(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const pauseVisible = everCaptured.current && !captured;
+  // Movement and firing are suspended while a menu is on screen
+  const menuOpenRef = useRef(false);
+  menuOpenRef.current = pauseVisible || showSettings;
+
   const [hud, setHud] = useState<HudState>({
     hp: 100,
-    enemyHp: 100,
     ammo: 0,
     magSize: 0,
     reloading: false,
@@ -52,9 +100,15 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
     speed: 0,
     medkitUsed: false,
     connectionLost: false,
+    damageDealt: 0,
+    damageTaken: 0,
+    hits: 0,
+    score: props.score,
   });
-  const overRef = useRef(false);
-  const dmgOverlayRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    layoutRef.current();
+  }, [props.settings.aspectRatio]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -65,21 +119,42 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
     scene.background = new THREE.Color(map.skyColor);
     scene.fog = new THREE.Fog(new THREE.Color(map.skyColor), map.size * 0.35, map.size * 1.15);
 
-    const camera = new THREE.PerspectiveCamera(78, window.innerWidth / window.innerHeight, 0.05, 500);
+    const camera = new THREE.PerspectiveCamera(settingsRef.current.fov, 1, 0.05, 500);
     camera.rotation.order = 'YXZ';
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
-    mount.appendChild(renderer.domElement);
+    const canvas = renderer.domElement;
+    canvas.style.position = 'absolute';
+    mount.appendChild(canvas);
+
+    // Fit the 3D view to the window, letterboxed to the chosen aspect ratio
+    function layout() {
+      const ww = window.innerWidth;
+      const wh = window.innerHeight;
+      const ratio = settingsRef.current.aspectRatio;
+      let w = ww;
+      let h = wh;
+      if (ratio > 0) {
+        if (ww / wh > ratio) w = Math.round(wh * ratio);
+        else h = Math.round(ww / ratio);
+      }
+      renderer.setSize(w, h);
+      canvas.style.left = `${Math.round((ww - w) / 2)}px`;
+      canvas.style.top = `${Math.round((wh - h) / 2)}px`;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    layoutRef.current = layout;
+    layout();
 
     const hemi = new THREE.HemisphereLight('#ffffff', '#555566', 0.9);
     scene.add(hemi);
     const sun = new THREE.DirectionalLight('#fff4e0', 1.1);
     sun.position.set(map.size * 0.3, map.size * 0.5, map.size * 0.2);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.mapSize.set(2048, 2048);
     const d = map.size * 0.7;
     sun.shadow.camera.left = -d;
     sun.shadow.camera.right = d;
@@ -89,7 +164,7 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
 
     const built = buildMap(map);
     scene.add(built.group);
-    const colliders = built.colliders;
+    const solids = built.solids;
 
     // ----- Spawns -----
     const localSpawn = role === 'host' ? map.spawnA : map.spawnB;
@@ -111,21 +186,20 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
     const gunMesh = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.6), gunMat);
     gunMesh.position.set(0.3, 1.1, 0.4);
     remoteGroup.add(gunMesh);
-    remoteGroup.position.set(remoteSpawn[0], remoteSpawn[1] - MOVE.standHeight, remoteSpawn[2]);
+    remoteGroup.position.set(remoteSpawn[0], remoteSpawn[1], remoteSpawn[2]);
     scene.add(remoteGroup);
     const raycastTargets: THREE.Object3D[] = [
       ...built.group.children.filter((o) => !(o instanceof THREE.GridHelper)),
       capsule,
     ];
 
+    // Opponent HP is deliberately not tracked or sent: you can't see their health.
     const remoteTarget = {
-      pos: new THREE.Vector3(remoteSpawn[0], remoteSpawn[1] - MOVE.standHeight, remoteSpawn[2]),
+      pos: new THREE.Vector3(remoteSpawn[0], remoteSpawn[1], remoteSpawn[2]),
       rotY: yaw + Math.PI,
-      hp: 100,
       moving: false,
       crouching: false,
     };
-    let remoteHp = 100;
     let remoteAlive = true;
 
     // ----- Weapon viewmodel -----
@@ -143,57 +217,85 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
     camera.add(flashLight);
 
     // ----- Input -----
+    // `keys` is indexed by KeyboardEvent.code, with mouse buttons as 'Mouse0'..'Mouse4'
     const keys: Record<string, boolean> = {};
-    let mouseDown = false;
-    let prevJumpKey = false;
     let localAlive = true;
     let gameEnded = false;
+    let prevJumpKey = false;
+    let prevCrouchKey = false;
+    let crouchLatched = false;
+    let firedSemiThisPress = false;
+
+    const isDown = (a: ActionId) => !!keys[settingsRef.current.bindings[a]];
+    const captured = () => document.pointerLockElement === canvas;
+
+    function clearKeys() {
+      for (const k of Object.keys(keys)) keys[k] = false;
+    }
 
     function requestLock() {
-      renderer.domElement.requestPointerLock();
+      const p: unknown = canvas.requestPointerLock();
+      if (p && typeof (p as Promise<void>).catch === 'function') (p as Promise<void>).catch(() => {});
     }
-    function onPointerLockChange() {
-      setLocked(document.pointerLockElement === renderer.domElement);
+
+    function onLockChange() {
+      const isLocked = captured();
+      if (isLocked) everCaptured.current = true;
+      if (!isLocked) clearKeys();
+      setCaptured(isLocked);
     }
+
     function onMouseMove(e: MouseEvent) {
-      if (document.pointerLockElement !== renderer.domElement) return;
-      const sens = 0.0022;
-      yaw -= e.movementX * sens;
-      pitch -= e.movementY * sens;
+      if (!captured()) return;
+      const s = settingsRef.current;
+      const k = BASE_LOOK_SPEED * s.sensitivity;
+      yaw -= e.movementX * k;
+      pitch -= e.movementY * k * (s.invertY ? -1 : 1);
       pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
     }
+
     function onKeyDown(e: KeyboardEvent) {
+      const b = settingsRef.current.bindings;
+      if (Object.values(b).includes(e.code)) e.preventDefault(); // stop Space scrolling/clicking buttons
       keys[e.code] = true;
-      if (e.code === 'Digit1') currentSlotIdx = 0;
-      if (e.code === 'Digit2') currentSlotIdx = 1;
-      if (e.code === 'Digit3') currentSlotIdx = 2;
-      if (e.code === 'Digit4') currentSlotIdx = 3;
-      if (e.code === 'KeyR') tryReload();
+      if (e.repeat || menuOpenRef.current) return;
+      if (e.code === b.reload) tryReload();
+      for (let i = 0; i < SLOT_ACTIONS.length; i++) {
+        if (e.code === b[SLOT_ACTIONS[i]]) selectSlot(i);
+      }
     }
     function onKeyUp(e: KeyboardEvent) {
       keys[e.code] = false;
     }
     function onMouseDown(e: MouseEvent) {
-      if (e.button === 0) mouseDown = true;
-      if (document.pointerLockElement !== renderer.domElement) requestLock();
+      if (!captured()) {
+        // Non-blocking: the first click on the game simply captures the mouse
+        if (e.target === canvas) requestLock();
+        return;
+      }
+      keys[`Mouse${e.button}`] = true;
     }
     function onMouseUp(e: MouseEvent) {
-      if (e.button === 0) mouseDown = false;
+      keys[`Mouse${e.button}`] = false;
     }
-    function onResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
+    function onWheel(e: WheelEvent) {
+      if (!captured() || menuOpenRef.current) return;
+      cycleSlot(e.deltaY > 0 ? 1 : -1);
+    }
+    function onContextMenu(e: Event) {
+      if (captured()) e.preventDefault();
     }
 
-    renderer.domElement.addEventListener('click', requestLock);
-    document.addEventListener('pointerlockchange', onPointerLockChange);
+    document.addEventListener('pointerlockchange', onLockChange);
     document.addEventListener('mousemove', onMouseMove);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mouseup', onMouseUp);
-    window.addEventListener('resize', onResize);
+    window.addEventListener('wheel', onWheel, { passive: true });
+    window.addEventListener('contextmenu', onContextMenu);
+    window.addEventListener('blur', clearKeys);
+    window.addEventListener('resize', layout);
 
     // ----- Loadout / weapon state -----
     const slotWeapons: (WeaponDef | undefined)[] = SLOT_KEYS.map((k) => getWeapon(localLoadout[k]));
@@ -206,8 +308,22 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
     let medkitUsed = false;
     let localHp = 100;
 
+    const stats: MatchStats = { damageDealt: 0, damageTaken: 0, hits: 0 };
+
     function currentWeapon(): WeaponDef | undefined {
       return slotWeapons[currentSlotIdx];
+    }
+
+    function selectSlot(i: number) {
+      if (slotWeapons[i]) currentSlotIdx = i;
+    }
+
+    function cycleSlot(dir: number) {
+      const avail = [0, 1, 2, 3].filter((i) => slotWeapons[i]);
+      if (avail.length === 0) return;
+      const pos = avail.indexOf(currentSlotIdx);
+      const next = pos < 0 ? avail[0] : avail[(pos + dir + avail.length) % avail.length];
+      currentSlotIdx = next;
     }
 
     function tryReload() {
@@ -217,6 +333,27 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
       if (!rt || rt.reloading || rt.ammo >= w.magSize) return;
       rt.reloading = true;
       rt.reloadEndsAt = performance.now() + w.reloadMs;
+    }
+
+    // ----- Feedback: hitmarker + damage numbers -----
+    function confirmHit(damage: number) {
+      stats.damageDealt += damage;
+      stats.hits += 1;
+      const hm = hitRef.current;
+      if (hm) {
+        hm.style.animation = 'none';
+        void hm.offsetWidth;
+        hm.style.animation = 'hitmarker 220ms ease-out';
+      }
+      const host = popupRef.current;
+      if (host) {
+        const el = document.createElement('div');
+        el.className = 'damage-popup';
+        el.textContent = String(Math.round(damage));
+        el.style.left = `calc(50% + ${Math.round((Math.random() - 0.5) * 44)}px)`;
+        el.addEventListener('animationend', () => el.remove());
+        host.appendChild(el);
+      }
     }
 
     // ----- Tracers & projectiles -----
@@ -285,6 +422,30 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
       grenades.push({ mesh, vel, bornAt: performance.now(), exploded: false });
     }
 
+    /** Bounce a grenade off walls, ramps, platforms and the floor. */
+    function bounceGrenade(g: Grenade, prev: THREE.Vector3) {
+      const p = g.mesh.position;
+      if (solidAt(solids, p.x, p.y, p.z)) {
+        const blockedX = solidAt(solids, p.x, prev.y, prev.z);
+        const blockedZ = solidAt(solids, prev.x, prev.y, p.z);
+        if (blockedX) {
+          p.x = prev.x;
+          g.vel.x *= -0.4;
+        }
+        if (blockedZ) {
+          p.z = prev.z;
+          g.vel.z *= -0.4;
+        }
+      }
+      const ground = groundHeight(solids, p.x, p.z, p.y);
+      if (p.y <= ground + 0.12 && g.vel.y <= 0) {
+        p.y = ground + 0.12;
+        g.vel.y = Math.abs(g.vel.y) * 0.35;
+        g.vel.x *= 0.7;
+        g.vel.z *= 0.7;
+      }
+    }
+
     function explodeGrenade(g: Grenade) {
       g.exploded = true;
       scene.remove(g.mesh);
@@ -298,7 +459,10 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
       );
       if (distToRemote < radius && remoteAlive) {
         const dmg = Math.round(90 * (1 - distToRemote / radius));
-        if (dmg > 0) connection.send({ type: 'hit', damage: dmg, byShotId: 'nade-' + Math.random() });
+        if (dmg > 0) {
+          connection.send({ type: 'hit', damage: dmg, byShotId: 'nade-' + Math.random() });
+          confirmHit(dmg);
+        }
       }
     }
 
@@ -322,6 +486,7 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
       spawnTracer(camera.position.clone(), camera.position.clone().addScaledVector(dir, w.range * 0.3), '#ffffff');
       if (hits.length > 0 && hits[0].object.userData.isRemotePlayer && remoteAlive) {
         connection.send({ type: 'hit', damage: w.damage, byShotId: 'melee-' + Math.random() });
+        confirmHit(w.damage);
       }
     }
 
@@ -348,6 +513,8 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
         id: Math.random().toString(36).slice(2),
       });
 
+      // All pellets of one shot are combined into a single hit confirmation
+      let shotDamage = 0;
       const pellets = w.pellets ?? 1;
       for (let i = 0; i < pellets; i++) {
         const spread = w.spread ?? 0;
@@ -363,17 +530,19 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
           spawnTracer(origin, hit.point, '#ffe08a');
           if (hit.object.userData.isRemotePlayer && remoteAlive) {
             connection.send({ type: 'hit', damage: w.damage, byShotId: 'gun-' + Math.random() });
+            shotDamage += w.damage;
           }
         } else {
           spawnTracer(origin, origin.clone().addScaledVector(spreadDir, w.range), '#ffe08a');
         }
       }
+      if (shotDamage > 0) confirmHit(shotDamage);
       if (rt.ammo <= 0) tryReload();
     }
 
-    function handleFireInput() {
+    function handleFireInput(fireHeld: boolean) {
       const w = currentWeapon();
-      if (!w || !mouseDown || gameEnded || !localAlive) return;
+      if (!w || !fireHeld || gameEnded || !localAlive) return;
       if (w.category === 'melee') {
         meleeAttack();
       } else if (w.id === 'grenade') {
@@ -383,28 +552,28 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
       } else if (w.magSize > 0) {
         if (w.automatic) {
           fireGun(w);
-        } else {
-          if (!firedSemiThisPress) {
-            fireGun(w);
-            firedSemiThisPress = true;
-          }
+        } else if (!firedSemiThisPress) {
+          fireGun(w);
+          firedSemiThisPress = true;
         }
       }
     }
-    let firedSemiThisPress = false;
 
     const raycaster = new THREE.Raycaster();
 
     // ----- Networking -----
+    const endMatch = (result: GameResult) => {
+      gameEnded = true;
+      if (document.pointerLockElement === canvas) document.exitPointerLock();
+      propsRef.current.onGameOver(result, { ...stats });
+    };
+
     const unsub = connection.onMessage((msg: NetMessage) => {
       if (msg.type === 'player-state') {
         remoteTarget.pos.set(msg.pos[0], msg.pos[1], msg.pos[2]);
         remoteTarget.rotY = msg.rotY;
-        remoteTarget.hp = msg.hp;
         remoteTarget.moving = msg.moving;
         remoteTarget.crouching = msg.crouching;
-        remoteHp = msg.hp;
-        remoteAlive = msg.hp > 0;
       } else if (msg.type === 'shoot') {
         const origin = new THREE.Vector3(...msg.origin);
         const dir = new THREE.Vector3(...msg.dir);
@@ -412,34 +581,28 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
         spawnTracer(origin, origin.clone().addScaledVector(dir, w?.range ?? 40), '#ff8c69');
       } else if (msg.type === 'hit') {
         if (!localAlive) return;
+        stats.damageTaken += Math.min(msg.damage, localHp);
         localHp -= msg.damage;
         flashDamage();
         if (localHp <= 0 && !gameEnded) {
           localHp = 0;
           localAlive = false;
-          gameEnded = true;
           connection.send({ type: 'death' });
-          document.exitPointerLock();
-          overRef.current = true;
-          onGameOver('lose');
+          endMatch('lose');
         }
       } else if (msg.type === 'death') {
         if (!gameEnded) {
-          gameEnded = true;
           remoteAlive = false;
-          document.exitPointerLock();
-          overRef.current = true;
-          onGameOver('win');
+          endMatch('win');
         }
       } else if (msg.type === 'explosion') {
         spawnExplosionVisual(new THREE.Vector3(...msg.pos));
       }
     });
-    connection.onClose(() => {
+    const unsubClose = connection.onClose(() => {
       if (!gameEnded) {
         gameEnded = true;
-        overRef.current = true;
-        onGameOver('disconnected');
+        propsRef.current.onGameOver('disconnected', { ...stats });
       }
     });
 
@@ -453,6 +616,7 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
     let lastNetSend = 0;
     let lastHudUpdate = 0;
     let rafId = 0;
+    let crouchWanted = false;
 
     function animate() {
       rafId = requestAnimationFrame(animate);
@@ -461,19 +625,37 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
       dt = Math.min(dt, 0.05);
       lastTime = now;
 
+      const s = settingsRef.current;
+      if (camera.fov !== s.fov) {
+        camera.fov = s.fov;
+        camera.updateProjectionMatrix();
+      }
+
+      const menuOpen = menuOpenRef.current;
+
       if (!gameEnded && localAlive) {
-        const jumpKey = !!keys['Space'];
+        // Crouch: hold, or toggle on each press
+        const crouchDown = !menuOpen && isDown('crouch');
+        if (s.toggleCrouch) {
+          if (crouchDown && !prevCrouchKey) crouchLatched = !crouchLatched;
+          crouchWanted = crouchLatched && !menuOpen;
+        } else {
+          crouchWanted = crouchDown;
+        }
+        prevCrouchKey = crouchDown;
+
+        const jumpDown = !menuOpen && isDown('jump');
         const input: MoveInput = {
-          forward: (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0),
-          right: (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0),
-          sprint: !!keys['ShiftLeft'] || !!keys['ShiftRight'],
-          crouch: !!keys['ControlLeft'] || !!keys['KeyC'] || !!keys['ControlRight'],
-          jumpPressed: jumpKey && !prevJumpKey,
+          forward: menuOpen ? 0 : (isDown('forward') ? 1 : 0) - (isDown('back') ? 1 : 0),
+          right: menuOpen ? 0 : (isDown('right') ? 1 : 0) - (isDown('left') ? 1 : 0),
+          sprint: !menuOpen && isDown('sprint'),
+          crouch: crouchWanted,
+          jumpPressed: jumpDown && !prevJumpKey,
           yaw,
         };
-        prevJumpKey = jumpKey;
+        prevJumpKey = jumpDown;
         stepPhysics(physics, input, dt);
-        resolveGroundAndWalls(physics, colliders, map.size);
+        resolveGroundAndWalls(physics, solids, map.size);
 
         camera.position.set(physics.position.x, physics.position.y + physics.height - 0.08, physics.position.z);
         camera.rotation.y = yaw;
@@ -486,8 +668,9 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
         vmGroup.position.y = -0.28 + Math.sin(bobT) * 0.012 * bobAmount;
         vmGroup.position.x = 0.28 + Math.cos(bobT * 0.5) * 0.008 * bobAmount;
 
-        if (!mouseDown) firedSemiThisPress = false;
-        handleFireInput();
+        const fireHeld = !menuOpen && isDown('fire');
+        if (!fireHeld) firedSemiThisPress = false;
+        handleFireInput(fireHeld);
 
         // reload completion
         const w = currentWeapon();
@@ -509,7 +692,6 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
             pos: [physics.position.x, physics.position.y, physics.position.z],
             rotY: yaw,
             pitch,
-            hp: localHp,
             moving: horizSpeed > 0.5,
             crouching: physics.crouching || physics.sliding,
           });
@@ -524,13 +706,9 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
           continue;
         }
         g.vel.y -= MOVE.gravity * dt;
+        const prev = g.mesh.position.clone();
         g.mesh.position.addScaledVector(g.vel, dt);
-        if (g.mesh.position.y <= 0.12) {
-          g.mesh.position.y = 0.12;
-          g.vel.y = Math.abs(g.vel.y) * 0.35;
-          g.vel.x *= 0.7;
-          g.vel.z *= 0.7;
-        }
+        bounceGrenade(g, prev);
         if (now - g.bornAt > 1600) {
           explodeGrenade(g);
         }
@@ -569,7 +747,6 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
         const rt = w ? runtime[w.id] : undefined;
         setHud({
           hp: localHp,
-          enemyHp: remoteHp,
           ammo: rt?.ammo ?? 0,
           magSize: w?.magSize ?? 0,
           reloading: !!rt?.reloading,
@@ -585,48 +762,121 @@ export default function GameCanvas({ connection, role, map, localLoadout, onGame
           speed: Math.hypot(physics.velocity.x, physics.velocity.z),
           medkitUsed,
           connectionLost: !connection.isConnected(),
+          damageDealt: stats.damageDealt,
+          damageTaken: stats.damageTaken,
+          hits: stats.hits,
+          score: propsRef.current.score,
         });
       }
     }
     animate();
 
+    // Try to capture the mouse straight away. Browsers may refuse without a click,
+    // in which case the first click on the game captures it.
+    requestLock();
+
     return () => {
+      // Unmounting means we've left the match: ignore any late close/death events
+      gameEnded = true;
       cancelAnimationFrame(rafId);
       unsub();
-      renderer.domElement.removeEventListener('click', requestLock);
-      document.removeEventListener('pointerlockchange', onPointerLockChange);
+      unsubClose();
+      document.removeEventListener('pointerlockchange', onLockChange);
       document.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mouseup', onMouseUp);
-      window.removeEventListener('resize', onResize);
-      if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
-      mount.removeChild(renderer.domElement);
+      window.removeEventListener('wheel', onWheel);
+      window.removeEventListener('contextmenu', onContextMenu);
+      window.removeEventListener('blur', clearKeys);
+      window.removeEventListener('resize', layout);
+      if (document.pointerLockElement === canvas) document.exitPointerLock();
+      mount.removeChild(canvas);
       renderer.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const bindings = props.settings.bindings;
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-black">
+      <style>{GAME_CSS}</style>
       <div ref={mountRef} className="absolute inset-0" />
       <div
         ref={dmgOverlayRef}
         className="pointer-events-none absolute inset-0 bg-red-600 opacity-0"
         style={{ boxShadow: 'inset 0 0 180px 60px rgba(220,38,38,0.6)' }}
       />
+
+      {/* Hitmarker */}
+      <div
+        ref={hitRef}
+        className="pointer-events-none absolute left-1/2 top-1/2 h-6 w-6 opacity-0"
+        style={{ transform: 'translate(-50%, -50%)' }}
+      >
+        {[45, 135, 225, 315].map((deg) => (
+          <span
+            key={deg}
+            className="absolute left-1/2 top-1/2 h-2.5 w-0.5 rounded bg-white shadow"
+            style={{ transform: `translate(-50%, -50%) rotate(${deg}deg) translateY(-8px)` }}
+          />
+        ))}
+      </div>
+      {/* Floating damage numbers are appended here imperatively */}
+      <div ref={popupRef} className="pointer-events-none absolute inset-0" />
+
       <HUD state={hud} />
-      {!locked && !overRef.current && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-          <div className="max-w-md space-y-3 rounded-xl border border-white/10 bg-slate-900/90 p-6 text-center text-white shadow-2xl">
-            <h2 className="text-xl font-bold">Click to engage</h2>
-            <p className="text-sm text-white/70">
-              WASD move · Mouse look · Space jump (hold to bhop) · Ctrl/C crouch-slide · Shift sprint · Left click
-              fire/use · R reload · 1-4 switch slot
+
+      {!captured && !everCaptured.current && !showSettings && (
+        <div className="pointer-events-none absolute left-1/2 top-16 -translate-x-1/2 rounded-full bg-black/60 px-4 py-1.5 text-xs font-semibold text-white/80">
+          Click the game to capture the mouse
+        </div>
+      )}
+
+      {pauseVisible && !showSettings && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+          <div className="w-80 space-y-3 rounded-xl border border-white/10 bg-slate-900/95 p-6 text-center text-white shadow-2xl">
+            <h2 className="text-xl font-bold">Mouse released</h2>
+            <p className="text-xs text-white/50">
+              The match is still running — your opponent can still hit you.
             </p>
-            <div className="mx-auto h-2 w-24 rounded-full bg-amber-400" />
+            <button
+              onClick={() => {
+                // A click is a user gesture, so pointer lock is allowed here
+                const c = mountRef.current?.querySelector('canvas');
+                if (!c) return;
+                const p: unknown = c.requestPointerLock();
+                if (p && typeof (p as Promise<void>).catch === 'function') (p as Promise<void>).catch(() => {});
+              }}
+              className="w-full rounded-lg bg-amber-500 px-4 py-2.5 font-bold text-black transition hover:bg-amber-400"
+            >
+              Resume
+            </button>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="w-full rounded-lg border border-white/20 bg-white/5 px-4 py-2.5 font-semibold transition hover:bg-white/10"
+            >
+              Settings
+            </button>
+            <button
+              onClick={() => props.onLeave()}
+              className="w-full rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300 transition hover:bg-red-500/20"
+            >
+              Leave match (forfeit)
+            </button>
+            <p className="pt-1 text-[11px] leading-relaxed text-white/40">{controlsSummary(bindings)}</p>
           </div>
+        </div>
+      )}
+
+      {showSettings && (
+        <div className="absolute inset-0 z-50 overflow-y-auto bg-slate-950/95">
+          <SettingsPanel
+            settings={props.settings}
+            onChange={props.onSettingsChange}
+            onBack={() => setShowSettings(false)}
+          />
         </div>
       )}
     </div>

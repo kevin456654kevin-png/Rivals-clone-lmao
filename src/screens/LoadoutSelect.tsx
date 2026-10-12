@@ -3,6 +3,7 @@ import { weaponsByCategory } from '../data/weapons';
 import type { Loadout, WeaponCategory } from '../types';
 
 const CATEGORY_ORDER: WeaponCategory[] = ['primary', 'secondary', 'melee', 'misc'];
+const LAST_LOADOUT_KEY = 'duel-arena-last-loadout';
 const CATEGORY_LABELS: Record<WeaponCategory, string> = {
   primary: 'Primary',
   secondary: 'Secondary',
@@ -19,7 +20,23 @@ export default function LoadoutSelect({
   onConfirm: (loadout: Loadout) => void;
   waitingOnOpponent: boolean;
 }) {
-  const [loadout, setLoadout] = useState<Loadout>({ primary: null, secondary: null, melee: null, misc: null });
+  // Pre-fill with the last loadout used (minus anything now banned) so a rematch is one click.
+  const [loadout, setLoadout] = useState<Loadout>(() => {
+    const empty: Loadout = { primary: null, secondary: null, melee: null, misc: null };
+    try {
+      const saved = JSON.parse(localStorage.getItem(LAST_LOADOUT_KEY) ?? 'null') as Partial<Loadout> | null;
+      if (!saved) return empty;
+      for (const cat of CATEGORY_ORDER) {
+        const id = saved[cat];
+        if (typeof id === 'string' && !bannedWeapons.includes(id) && weaponsByCategory(cat, bannedWeapons).some((w) => w.id === id)) {
+          empty[cat] = id;
+        }
+      }
+    } catch {
+      /* ignore corrupt storage */
+    }
+    return empty;
+  });
   const [confirmed, setConfirmed] = useState(false);
 
   const ready = CATEGORY_ORDER.every((c) => loadout[c]);
@@ -31,6 +48,11 @@ export default function LoadoutSelect({
 
   function confirm() {
     if (!ready) return;
+    try {
+      localStorage.setItem(LAST_LOADOUT_KEY, JSON.stringify(loadout));
+    } catch {
+      /* storage unavailable */
+    }
     setConfirmed(true);
     onConfirm(loadout);
   }

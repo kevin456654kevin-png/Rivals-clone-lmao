@@ -1,38 +1,114 @@
 import * as THREE from 'three';
-import type { MapDef } from '../types';
+import type { BoxDef, MapDef, RampDef } from '../types';
+import type { BoxSolid, RampSolid, Solid } from './collision';
+import { rampHeight } from './collision';
 
 export interface BuiltMap {
   group: THREE.Group;
-  colliders: THREE.Box3[];
+  solids: Solid[];
 }
 
-function box(
-  group: THREE.Group,
-  colliders: THREE.Box3[],
-  x: number,
-  y: number,
-  z: number,
-  w: number,
-  h: number,
-  d: number,
-  color: string,
-  castShadow = true,
-) {
-  const geo = new THREE.BoxGeometry(w, h, d);
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05 });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(x, y + h / 2, z);
-  mesh.castShadow = castShadow;
+const WALL_COLOR = '#2d3138';
+const DEFAULT_BOX = '#4a5059';
+const DEFAULT_RAMP = '#7d8591';
+const PERIMETER_HEIGHT = 6;
+
+function material(color: string) {
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05 });
+}
+
+function addBox(group: THREE.Group, solids: Solid[], def: BoxDef) {
+  const bottom = def.y ?? 0;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(def.w, def.h, def.d), material(def.color ?? DEFAULT_BOX));
+  mesh.position.set(def.x, bottom + def.h / 2, def.z);
+  mesh.castShadow = true;
   mesh.receiveShadow = true;
   group.add(mesh);
-  const box3 = new THREE.Box3().setFromObject(mesh);
-  colliders.push(box3);
-  return mesh;
+
+  const solid: BoxSolid = {
+    kind: 'box',
+    minX: def.x - def.w / 2,
+    maxX: def.x + def.w / 2,
+    minZ: def.z - def.d / 2,
+    maxZ: def.z + def.d / 2,
+    bottom,
+    top: bottom + def.h,
+  };
+  solids.push(solid);
+}
+
+function addRamp(group: THREE.Group, solids: Solid[], def: RampDef) {
+  const solid: RampSolid = {
+    kind: 'ramp',
+    minX: def.x - def.w / 2,
+    maxX: def.x + def.w / 2,
+    minZ: def.z - def.d / 2,
+    maxZ: def.z + def.d / 2,
+    dir: def.dir,
+    y0: def.y0 ?? 0,
+    y1: def.y1,
+  };
+  const mesh = new THREE.Mesh(rampGeometry(solid), material(def.color ?? DEFAULT_RAMP));
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  solids.push(solid);
+}
+
+/**
+ * Wedge geometry for a ramp: a flat-shaded solid whose top follows rampHeight().
+ * Rendered double-sided so triangle winding never has to be exact.
+ */
+function rampGeometry(s: RampSolid): THREE.BufferGeometry {
+  const corners: [number, number][] = [
+    [s.minX, s.minZ],
+    [s.maxX, s.minZ],
+    [s.maxX, s.maxZ],
+    [s.minX, s.maxZ],
+  ];
+  const bottom = corners.map(([x, z]) => new THREE.Vector3(x, 0, z));
+  const top = corners.map(([x, z]) => new THREE.Vector3(x, rampHeight(s, x, z), z));
+
+  const quads: THREE.Vector3[][] = [];
+  quads.push([top[0], top[3], top[2], top[1]]); // sloped top
+  quads.push([bottom[0], bottom[1], bottom[2], bottom[3]]); // base
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    quads.push([bottom[i], bottom[j], top[j], top[i]]); // sides
+  }
+
+  const centre = new THREE.Vector3(
+    (s.minX + s.maxX) / 2,
+    (s.y0 + s.y1) / 4,
+    (s.minZ + s.maxZ) / 2,
+  );
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const addTri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3) => {
+    const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
+    if (n.lengthSq() < 1e-12) return; // degenerate (e.g. zero-height side)
+    n.normalize();
+    const mid = new THREE.Vector3().add(a).add(b).add(c).multiplyScalar(1 / 3);
+    if (n.dot(mid.sub(centre)) < 0) n.negate(); // make normals point outwards
+    for (const p of [a, b, c]) {
+      positions.push(p.x, p.y, p.z);
+      normals.push(n.x, n.y, n.z);
+    }
+  };
+  for (const [a, b, c, d] of quads) {
+    addTri(a, b, c);
+    addTri(a, c, d);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  return geo;
 }
 
 export function buildMap(map: MapDef): BuiltMap {
   const group = new THREE.Group();
-  const colliders: THREE.Box3[] = [];
+  const solids: Solid[] = [];
   const s = map.size;
 
   // Floor
@@ -51,70 +127,18 @@ export function buildMap(map: MapDef): BuiltMap {
   group.add(grid);
 
   // Perimeter walls
-  const wallH = 6;
-  const wallColor = '#2d3138';
-  box(group, colliders, 0, 0, -s / 2, s, wallH, 1, wallColor);
-  box(group, colliders, 0, 0, s / 2, s, wallH, 1, wallColor);
-  box(group, colliders, -s / 2, 0, 0, 1, wallH, s, wallColor);
-  box(group, colliders, s / 2, 0, 0, 1, wallH, s, wallColor);
+  const perimeter: BoxDef[] = [
+    { kind: 'box', x: 0, z: -s / 2, w: s, d: 1, h: PERIMETER_HEIGHT, color: WALL_COLOR },
+    { kind: 'box', x: 0, z: s / 2, w: s, d: 1, h: PERIMETER_HEIGHT, color: WALL_COLOR },
+    { kind: 'box', x: -s / 2, z: 0, w: 1, d: s, h: PERIMETER_HEIGHT, color: WALL_COLOR },
+    { kind: 'box', x: s / 2, z: 0, w: 1, d: s, h: PERIMETER_HEIGHT, color: WALL_COLOR },
+  ];
+  for (const b of perimeter) addBox(group, solids, b);
 
-  const rand = mulberry32(hashStr(map.id));
-
-  if (map.id === 'warehouse') {
-    const crateColor = '#8a6a3c';
-    for (let i = 0; i < 10; i++) {
-      const x = (rand() - 0.5) * (s - 8);
-      const z = (rand() - 0.5) * (s - 8);
-      if (Math.hypot(x, z) < 4) continue;
-      const size = 1.6 + rand() * 1.6;
-      box(group, colliders, x, 0, z, size, size, size, crateColor);
-    }
-    // central divider corridor walls
-    box(group, colliders, 0, 0, 0, 1.2, 3.2, 14, '#4a5059');
-    box(group, colliders, -10, 0, -6, 6, 3.6, 1, '#4a5059');
-    box(group, colliders, 10, 0, 6, 6, 3.6, 1, '#4a5059');
-  } else if (map.id === 'canyon') {
-    const rockColor = '#8d7752';
-    for (let i = 0; i < 14; i++) {
-      const x = (rand() - 0.5) * (s - 10);
-      const z = (rand() - 0.5) * (s - 10);
-      if (Math.hypot(x, z) < 6) continue;
-      const w = 2 + rand() * 3;
-      const h = 1.5 + rand() * 3;
-      const d = 2 + rand() * 3;
-      box(group, colliders, x, 0, z, w, h, d, rockColor);
-    }
-    box(group, colliders, 0, 0, 0, 5, 1.2, 5, '#a68b5b');
-  } else if (map.id === 'facility') {
-    const wallColor2 = '#3c4652';
-    box(group, colliders, 0, 0, 0, 7, 8, 7, '#2a313a'); // central tower
-    box(group, colliders, -14, 0, -14, 6, 3.6, 1, wallColor2);
-    box(group, colliders, -14, 0, 14, 6, 3.6, 1, wallColor2);
-    box(group, colliders, 14, 0, -14, 6, 3.6, 1, wallColor2);
-    box(group, colliders, 14, 0, 14, 6, 3.6, 1, wallColor2);
-    box(group, colliders, -7, 0, 0, 1, 3, 10, wallColor2);
-    box(group, colliders, 7, 0, 0, 1, 3, 10, wallColor2);
+  for (const def of map.solids) {
+    if (def.kind === 'box') addBox(group, solids, def);
+    else addRamp(group, solids, def);
   }
 
-  // Ambient props / lighting accents (not colliders) - small pillars for cover variety
-  return { group, colliders };
-}
-
-function hashStr(str: string): number {
-  let h = 1779033703 ^ str.length;
-  for (let i = 0; i < str.length; i++) {
-    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
-    h = (h << 13) | (h >>> 19);
-  }
-  return h >>> 0;
-}
-
-function mulberry32(a: number) {
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  return { group, solids };
 }
