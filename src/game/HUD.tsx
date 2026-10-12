@@ -1,5 +1,18 @@
 import type { WeaponDef } from '../types';
 
+export interface PracticeHud {
+  mapName: string;
+  botKills: number;
+  botsAlive: number;
+  botTotal: number;
+  targetHits: number;
+  bullseyes: number;
+  targetTotal: number;
+  shots: number;
+  hitsOnTargetsOrBots: number;
+  deaths: number;
+}
+
 export interface HudState {
   hp: number;
   ammo: number;
@@ -17,6 +30,12 @@ export interface HudState {
   damageTaken: number;
   hits: number;
   score: { wins: number; losses: number };
+  /** Scoped in — the scope reticle replaces the crosshair. */
+  scoped: boolean;
+  /** Effective magnification of the current scope setting. */
+  scopeZoom: number;
+  infiniteAmmo: boolean;
+  practice?: PracticeHud;
 }
 
 const MEDKIT_LABEL: Record<HudState['medkitStatus'], string> = {
@@ -28,13 +47,18 @@ const MEDKIT_LABEL: Record<HudState['medkitStatus'], string> = {
 
 export function HUD({ state }: { state: HudState }) {
   const hpPct = Math.max(0, Math.min(100, state.hp));
+  const accuracy = state.practice && state.practice.shots > 0
+    ? Math.round((state.practice.hitsOnTargetsOrBots / state.practice.shots) * 100)
+    : null;
   return (
     <div className="pointer-events-none absolute inset-0 select-none font-sans">
-      {/* Crosshair */}
-      <div className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2">
-        <div className="absolute left-1/2 top-1/2 h-0.5 w-3 -translate-x-1/2 -translate-y-1/2 bg-white/80 shadow" />
-        <div className="absolute left-1/2 top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/80 shadow" />
-      </div>
+      {/* Crosshair — hidden while the scope reticle is up */}
+      {!state.scoped && (
+        <div className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2">
+          <div className="absolute left-1/2 top-1/2 h-0.5 w-3 -translate-x-1/2 -translate-y-1/2 bg-white/80 shadow" />
+          <div className="absolute left-1/2 top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/80 shadow" />
+        </div>
+      )}
 
       {state.connectionLost && (
         <div className="absolute left-1/2 top-6 -translate-x-1/2 rounded-md bg-red-600/90 px-4 py-1.5 text-sm font-semibold text-white shadow-lg">
@@ -42,14 +66,23 @@ export function HUD({ state }: { state: HudState }) {
         </div>
       )}
 
-      {/* Score */}
-      <div className="absolute left-1/2 top-4 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-black/45 px-4 py-1.5 font-mono text-sm font-bold text-white shadow">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-white/60">You</span>
-        <span className="text-emerald-300">{state.score.wins}</span>
-        <span className="text-white/40">–</span>
-        <span className="text-red-300">{state.score.losses}</span>
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-white/60">Opp</span>
-      </div>
+      {/* Score / practice banner */}
+      {state.practice ? (
+        <div className="absolute left-1/2 top-4 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-black/45 px-4 py-1.5 font-mono text-sm font-bold text-white shadow">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-300/80">
+            Practice
+          </span>
+          <span className="text-white/80">{state.practice.mapName}</span>
+        </div>
+      ) : (
+        <div className="absolute left-1/2 top-4 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-black/45 px-4 py-1.5 font-mono text-sm font-bold text-white shadow">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-white/60">You</span>
+          <span className="text-emerald-300">{state.score.wins}</span>
+          <span className="text-white/40">–</span>
+          <span className="text-red-300">{state.score.losses}</span>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-white/60">Opp</span>
+        </div>
+      )}
 
       {/* Your health */}
       <div className="absolute bottom-6 left-6 w-56 space-y-1.5">
@@ -63,22 +96,61 @@ export function HUD({ state }: { state: HudState }) {
         <div className="text-sm font-bold text-white">{Math.max(0, Math.round(state.hp))} HP</div>
       </div>
 
-      {/* Damage counter */}
-      <div className="absolute bottom-6 right-6 w-56 space-y-1 rounded-lg bg-black/40 p-3 text-right font-mono text-xs text-white/80">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-white/60">Match damage</div>
-        <div className="flex justify-between">
-          <span className="text-white/60">Dealt</span>
-          <span className="font-bold text-amber-300">{Math.round(state.damageDealt)}</span>
+      {/* Damage counter / practice stats */}
+      {state.practice ? (
+        <div className="absolute bottom-6 right-6 w-60 space-y-1 rounded-lg bg-black/40 p-3 text-right font-mono text-xs text-white/80">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-white/60">Practice stats</div>
+          <div className="flex justify-between">
+            <span className="text-white/60">Bot kills</span>
+            <span className="font-bold text-emerald-300">{state.practice.botKills}</span>
+          </div>
+          {state.practice.botTotal > 0 && (
+            <div className="flex justify-between">
+              <span className="text-white/60">Bots up</span>
+              <span className="font-bold text-sky-300">
+                {state.practice.botsAlive} / {state.practice.botTotal}
+              </span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span className="text-white/60">Targets hit</span>
+            <span className="font-bold text-white">
+              {state.practice.targetHits}
+              {state.practice.bullseyes > 0 && (
+                <span className="text-amber-300"> ({state.practice.bullseyes} bull)</span>
+              )}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/60">Accuracy</span>
+            <span className="font-bold text-amber-300">{accuracy === null ? '—' : `${accuracy}%`}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/60">Shots</span>
+            <span className="font-bold text-white">{state.practice.shots}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/60">Deaths</span>
+            <span className="font-bold text-red-300">{state.practice.deaths}</span>
+          </div>
         </div>
-        <div className="flex justify-between">
-          <span className="text-white/60">Taken</span>
-          <span className="font-bold text-red-300">{Math.round(state.damageTaken)}</span>
+      ) : (
+        <div className="absolute bottom-6 right-6 w-56 space-y-1 rounded-lg bg-black/40 p-3 text-right font-mono text-xs text-white/80">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-white/60">Match damage</div>
+          <div className="flex justify-between">
+            <span className="text-white/60">Dealt</span>
+            <span className="font-bold text-amber-300">{Math.round(state.damageDealt)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/60">Taken</span>
+            <span className="font-bold text-red-300">{Math.round(state.damageTaken)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/60">Hits</span>
+            <span className="font-bold text-white">{state.hits}</span>
+          </div>
         </div>
-        <div className="flex justify-between">
-          <span className="text-white/60">Hits</span>
-          <span className="font-bold text-white">{state.hits}</span>
-        </div>
-      </div>
+      )}
 
       {/* Weapon / ammo */}
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-center">
@@ -89,10 +161,19 @@ export function HUD({ state }: { state: HudState }) {
               <span className="text-amber-400">Reloading…</span>
             ) : (
               <>
-                {state.ammo}
-                <span className="text-base text-white/50"> / {state.magSize}</span>
+                {state.infiniteAmmo ? '∞' : state.ammo}
+                <span className="text-base text-white/50"> / {state.infiniteAmmo ? '∞' : state.magSize}</span>
               </>
             )}
+          </div>
+        )}
+        {state.weapon?.scopeOverlay && (
+          <div
+            className={`mt-0.5 text-[11px] font-bold uppercase tracking-wide ${
+              state.scoped ? 'text-emerald-300' : 'text-red-300/80'
+            }`}
+          >
+            {state.scoped ? `Scoped · ${state.scopeZoom.toFixed(2)}×` : 'Hip fire · inaccurate'}
           </div>
         )}
         {state.weapon?.id === 'medkit' && (

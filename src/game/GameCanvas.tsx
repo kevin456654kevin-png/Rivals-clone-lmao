@@ -1,19 +1,45 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import type { Connection } from '../net/Connection';
-import type { GameResult, Loadout, MapDef, MatchStats, NetMessage, Role, WeaponDef } from '../types';
+import type { GameConnection } from '../net/GameConnection';
+import type {
+  GameMode,
+  GameResult,
+  Loadout,
+  MapDef,
+  MatchStats,
+  NetMessage,
+  PracticeConfig,
+  Role,
+  WeaponDef,
+} from '../types';
 import { getWeapon } from '../data/weapons';
-import { BASE_LOOK_SPEED, keyLabel, type ActionId, type Settings } from '../data/settings';
+import {
+  BASE_LOOK_SPEED,
+  keyLabel,
+  scopeLookScale,
+  scopeMagnification,
+  scopedFov,
+  type ActionId,
+  type Settings,
+} from '../data/settings';
+import { computeViewLayout } from './viewLayout';
 import { buildMap } from './mapBuilder';
 import { ViewModel, inspectDurationMs } from './viewmodels';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { solidAt, groundHeight } from './collision';
 import { createPhysicsState, MOVE, resolveGroundAndWalls, stepPhysics, type MoveInput } from './movement';
+import { audio } from './audio';
+import { BotSquad } from './bots';
+import { TargetRange } from './targets';
 import { HUD, type HudState } from './HUD';
 import SettingsPanel from '../screens/SettingsPanel';
 
 export interface GameCanvasProps {
-  connection: Connection;
+  connection: GameConnection;
+  /** 'pvp' (default) plays the duel; 'practice' runs the offline range. */
+  mode?: GameMode;
+  /** Required when mode is 'practice'. */
+  practice?: PracticeConfig;
   role: Role;
   map: MapDef;
   localLoadout: Loadout;
@@ -74,9 +100,14 @@ function shotSpreadForSpeed(baseSpread: number, movementSpeed: number) {
   return baseSpread + excessSpeed * SPEED_SPREAD_PER_UNIT;
 }
 
+/** Scoping in this recently still counts as a quickscope. */
+const QUICK_SCOPE_WINDOW_MS = 400;
+/** Portion of the scoped-accuracy ramp granted the instant the scope comes up. */
+const QUICK_SCOPE_ACCURACY = 0.8;
+
 function controlsSummary(b: Settings['bindings']) {
   const k = (a: ActionId) => keyLabel(b[a]);
-  return `${k('forward')}${k('left')}${k('back')}${k('right')} move · ${k('jump')} jump · ${k('crouch')} crouch · ${k('sprint')} sprint · ${k('fire')} fire · ${k('reload')} reload · ${k('inspect')} inspect · ${k('slot1')}–${k('slot4')} weapons · wheel switches`;
+  return `${k('forward')}${k('left')}${k('back')}${k('right')} move · ${k('jump')} jump · ${k('crouch')} crouch · ${k('sprint')} sprint · ${k('fire')} fire · ${k('scope')} scope · ${k('reload')} reload · ${k('inspect')} inspect · ${k('slot1')}–${k('slot4')} weapons · wheel switches`;
 }
 
 export default function GameCanvas(props: GameCanvasProps) {
@@ -85,6 +116,7 @@ export default function GameCanvas(props: GameCanvasProps) {
   const hitRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const dmgOverlayRef = useRef<HTMLDivElement>(null);
+  const scopeOverlayRef = useRef<HTMLDivElement>(null);
 
   // Latest props/settings for code running inside the long-lived effect
   const propsRef = useRef(props);
@@ -122,15 +154,24 @@ export default function GameCanvas(props: GameCanvasProps) {
     damageTaken: 0,
     hits: 0,
     score: props.score,
+    scoped: false,
+    scopeZoom: 1,
+    infiniteAmmo: false,
   });
 
   useEffect(() => {
     layoutRef.current();
-  }, [props.settings.aspectRatio]);
+  }, [props.settings.aspectRatio, props.settings.stretchRes]);
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
+
+    // Mode is fixed for the lifetime of this canvas
+    const mode: GameMode = props.mode ?? 'pvp';
+    const practice = props.practice;
+    const isPractice = mode === 'practice';
+    const infiniteAmmo = isPractice && !!practice?.infiniteAmmo;
 
     // ----- Scene setup -----
     const scene = new THREE.Scene();
@@ -147,22 +188,28 @@ export default function GameCanvas(props: GameCanvasProps) {
     canvas.style.position = 'absolute';
     mount.appendChild(canvas);
 
-    // Fit the 3D view to the window, letterboxed to the chosen aspect ratio
+    /**
+     * Size the 3D view.
+     *
+     * With a fixed aspect ratio the scene is *rendered* at that ratio. Normally it
+     * is then letterboxed inside the window; with "stretch to fill" the same
+     * low-res buffer is scaled over the whole window instead — the CS-style
+     * stretched-resolution look, where models appear wider and slide past faster.
+     * Either way `camera.aspect` stays the render aspect, so vertical FOV (and
+     * therefore aim) is identical; only the horizontal presentation changes.
+     */
     function layout() {
-      const ww = window.innerWidth;
-      const wh = window.innerHeight;
-      const ratio = settingsRef.current.aspectRatio;
-      let w = ww;
-      let h = wh;
-      if (ratio > 0) {
-        if (ww / wh > ratio) w = Math.round(wh * ratio);
-        else h = Math.round(ww / ratio);
-      }
-      renderer.setSize(w, h);
-      canvas.style.left = `${Math.round((ww - w) / 2)}px`;
-      canvas.style.top = `${Math.round((wh - h) / 2)}px`;
-      camera.aspect = w / h;
+      const s = settingsRef.current;
+      const l = computeViewLayout(window.innerWidth, window.innerHeight, s.aspectRatio, s.stretchRes);
+      renderer.setSize(l.renderWidth, l.renderHeight);
+      // The camera keeps the *render* aspect, so vertical FOV (and aim) never
+      // changes with the aspect ratio — only the presentation does.
+      camera.aspect = l.renderWidth / l.renderHeight;
       camera.updateProjectionMatrix();
+      canvas.style.left = `${l.left}px`;
+      canvas.style.top = `${l.top}px`;
+      canvas.style.width = `${l.cssWidth}px`;
+      canvas.style.height = `${l.cssHeight}px`;
     }
     layoutRef.current = layout;
     layout();
@@ -205,11 +252,34 @@ export default function GameCanvas(props: GameCanvasProps) {
     gunMesh.position.set(0.3, 1.1, 0.4);
     remoteGroup.add(gunMesh);
     remoteGroup.position.set(remoteSpawn[0], remoteSpawn[1], remoteSpawn[2]);
-    scene.add(remoteGroup);
-    const raycastTargets: THREE.Object3D[] = [
-      ...built.group.children.filter((o) => !(o instanceof THREE.GridHelper)),
-      capsule,
-    ];
+    if (!isPractice) scene.add(remoteGroup);
+    const raycastTargets: THREE.Object3D[] = built.group.children.filter((o) => !(o instanceof THREE.GridHelper));
+    if (!isPractice) raycastTargets.push(capsule);
+
+    // ----- Practice range: bots and target plates -----
+    const botCount = isPractice ? practice?.bots ?? 0 : 0;
+    const bots =
+      botCount > 0
+        ? new BotSquad(
+            solids,
+            map.size,
+            botCount,
+            practice?.botSkill ?? 0.5,
+            new THREE.Vector3(localSpawn[0], localSpawn[1], localSpawn[2]),
+          )
+        : null;
+    if (bots) {
+      scene.add(bots.group);
+      raycastTargets.push(...bots.raycastTargets());
+    }
+    const targets = isPractice && practice?.targets ? new TargetRange({ moving: practice?.movingTargets ?? true }) : null;
+    if (targets) {
+      scene.add(targets.group);
+      raycastTargets.push(...targets.raycastTargets());
+    }
+    let practiceShots = 0;
+    let practiceHits = 0;
+    let practiceDeaths = 0;
 
     // Opponent HP is deliberately not tracked or sent: you can't see their health.
     const remoteTarget = {
@@ -256,6 +326,17 @@ export default function GameCanvas(props: GameCanvasProps) {
     let swingAt = -1e9;
     const pendingScrollReleases = new Set<string>();
 
+    // ----- Scope / ADS -----
+    let scoped = false;
+    let prevScopeKey = false;
+    /** Smoothed 0..1; drives the FOV, look sensitivity and the overlay. */
+    let scopeBlend = 0;
+    let scopeStartAt = -1e9;
+
+    // ----- Audio bookkeeping -----
+    let lastStepAt = 0;
+    let wasSliding = false;
+
     const isDown = (a: ActionId) => !!keys[settingsRef.current.bindings[a]];
     const captured = () => document.pointerLockElement === canvas;
 
@@ -270,15 +351,25 @@ export default function GameCanvas(props: GameCanvasProps) {
 
     function onLockChange() {
       const isLocked = captured();
-      if (isLocked) everCaptured.current = true;
-      if (!isLocked) clearKeys();
+      if (isLocked) {
+        everCaptured.current = true;
+        audio.unlock(); // a pointer-lock change follows a user gesture, so audio may start
+      } else {
+        clearKeys();
+        // Never leave a menu with the scope stuck on
+        if (scoped) {
+          scoped = false;
+          scopeBlend = 0;
+        }
+      }
       setCaptured(isLocked);
     }
 
     function onMouseMove(e: MouseEvent) {
       if (!captured()) return;
       const s = settingsRef.current;
-      const k = BASE_LOOK_SPEED * s.sensitivity;
+      // Scoped look scales down with magnification so the scope stays usable
+      const k = BASE_LOOK_SPEED * s.sensitivity * scopeLookScale(s.scopeZoom, scopeBlend, s.scopeSensitivity);
       yaw -= e.movementX * k;
       pitch -= e.movementY * k * (s.invertY ? -1 : 1);
       pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
@@ -287,6 +378,7 @@ export default function GameCanvas(props: GameCanvasProps) {
     function onKeyDown(e: KeyboardEvent) {
       const b = settingsRef.current.bindings;
       if (Object.values(b).includes(e.code)) e.preventDefault(); // stop Space scrolling/clicking buttons
+      audio.unlock();
       keys[e.code] = true;
       if (e.repeat || menuOpenRef.current) return;
       if (e.code === b.reload) tryReload();
@@ -299,6 +391,7 @@ export default function GameCanvas(props: GameCanvasProps) {
       keys[e.code] = false;
     }
     function onMouseDown(e: MouseEvent) {
+      audio.unlock();
       if (!captured()) {
         // Non-blocking: the first click on the game simply captures the mouse
         if (e.target === canvas) requestLock();
@@ -390,27 +483,36 @@ export default function GameCanvas(props: GameCanvasProps) {
       cancelInspect();
       rt.reloading = true;
       rt.reloadEndsAt = performance.now() + w.reloadMs;
+      if (w.reloadMs > 0) audio.reloadStart();
     }
 
     // ----- Feedback: hitmarker + damage numbers -----
+    function showHitmarker() {
+      const hm = hitRef.current;
+      if (!hm) return;
+      hm.style.animation = 'none';
+      void hm.offsetWidth;
+      hm.style.animation = 'hitmarker 220ms ease-out';
+    }
+
+    function showPopup(text: string, color?: string) {
+      const host = popupRef.current;
+      if (!host) return;
+      const el = document.createElement('div');
+      el.className = 'damage-popup';
+      el.textContent = text;
+      if (color) el.style.color = color;
+      el.style.left = `calc(50% + ${Math.round((Math.random() - 0.5) * 44)}px)`;
+      el.addEventListener('animationend', () => el.remove());
+      host.appendChild(el);
+    }
+
     function confirmHit(damage: number) {
       stats.damageDealt += damage;
       stats.hits += 1;
-      const hm = hitRef.current;
-      if (hm) {
-        hm.style.animation = 'none';
-        void hm.offsetWidth;
-        hm.style.animation = 'hitmarker 220ms ease-out';
-      }
-      const host = popupRef.current;
-      if (host) {
-        const el = document.createElement('div');
-        el.className = 'damage-popup';
-        el.textContent = String(Math.round(damage));
-        el.style.left = `calc(50% + ${Math.round((Math.random() - 0.5) * 44)}px)`;
-        el.addEventListener('animationend', () => el.remove());
-        host.appendChild(el);
-      }
+      showHitmarker();
+      showPopup(String(Math.round(damage)));
+      audio.hitmarker();
     }
 
     // ----- Tracers & projectiles -----
@@ -457,14 +559,23 @@ export default function GameCanvas(props: GameCanvasProps) {
       anim();
     }
 
+    /** -1 (left) .. 1 (right): where a world position sits relative to our view. */
+    function panFor(pos: THREE.Vector3): number {
+      const dx = pos.x - camera.position.x;
+      const dz = pos.z - camera.position.z;
+      const right = dx * Math.cos(yaw) - dz * Math.sin(yaw);
+      return Math.max(-1, Math.min(1, right / 12));
+    }
+
     function throwGrenade() {
       const w = getWeapon('grenade');
       if (!w) return;
       const rt = runtime['grenade'];
       if (!rt || rt.ammo <= 0) return;
       if (performance.now() - rt.lastFireAt < w.fireRateMs) return;
-      rt.ammo -= 1;
+      if (!infiniteAmmo) rt.ammo -= 1;
       rt.lastFireAt = performance.now();
+      audio.throwGrenade();
       const dir = new THREE.Vector3();
       camera.getWorldDirection(dir);
       const origin = camera.position.clone().addScaledVector(dir, 0.6);
@@ -505,21 +616,29 @@ export default function GameCanvas(props: GameCanvasProps) {
 
     function explodeGrenade(g: Grenade) {
       g.exploded = true;
+      const blastPos = g.mesh.position.clone();
       scene.remove(g.mesh);
       g.mesh.geometry.dispose();
       (g.mesh.material as THREE.Material).dispose();
-      spawnExplosionVisual(g.mesh.position);
-      connection.send({ type: 'explosion', pos: [g.mesh.position.x, g.mesh.position.y, g.mesh.position.z] });
+      spawnExplosionVisual(blastPos);
+      audio.explosion(panFor(blastPos));
+      connection.send({ type: 'explosion', pos: [blastPos.x, blastPos.y, blastPos.z] });
       const radius = 6.5;
-      const distToRemote = g.mesh.position.distanceTo(
-        new THREE.Vector3(remoteTarget.pos.x, remoteTarget.pos.y + 1, remoteTarget.pos.z),
-      );
-      if (distToRemote < radius && remoteAlive) {
-        const dmg = Math.round(90 * (1 - distToRemote / radius));
-        if (dmg > 0) {
-          connection.send({ type: 'hit', damage: dmg, byShotId: 'nade-' + Math.random() });
-          confirmHit(dmg);
+      if (!isPractice) {
+        const distToRemote = blastPos.distanceTo(
+          new THREE.Vector3(remoteTarget.pos.x, remoteTarget.pos.y + 1, remoteTarget.pos.z),
+        );
+        if (distToRemote < radius && remoteAlive) {
+          const dmg = Math.round(90 * (1 - distToRemote / radius));
+          if (dmg > 0) {
+            connection.send({ type: 'hit', damage: dmg, byShotId: 'nade-' + Math.random() });
+            confirmHit(dmg);
+          }
         }
+      }
+      if (bots) {
+        const dmg = bots.applySplash(blastPos, radius, 90, performance.now());
+        if (dmg > 0) confirmHit(dmg);
       }
     }
 
@@ -553,39 +672,106 @@ export default function GameCanvas(props: GameCanvasProps) {
       const w = currentWeapon();
       if (!w) return;
       const rt = runtime[w.id];
-      if (rt && performance.now() - rt.lastFireAt < w.fireRateMs) return;
-      if (rt) rt.lastFireAt = performance.now();
-      swingAt = performance.now();
+      const now = performance.now();
+      if (rt && now - rt.lastFireAt < w.fireRateMs) return;
+      if (rt) rt.lastFireAt = now;
+      swingAt = now;
+      audio.melee();
       const dir = new THREE.Vector3();
       camera.getWorldDirection(dir);
+      scene.updateMatrixWorld();
       raycaster.set(camera.position, dir);
       raycaster.far = w.range;
       const hits = raycaster.intersectObjects(raycastTargets, false);
       spawnTracer(camera.position.clone(), camera.position.clone().addScaledVector(dir, w.range * 0.3), '#ffffff');
-      if (hits.length > 0 && hits[0].object.userData.isRemotePlayer && remoteAlive) {
-        connection.send({ type: 'hit', damage: w.damage, byShotId: 'melee-' + Math.random() });
-        confirmHit(w.damage);
+      if (hits.length > 0) {
+        const damage = applyImpact(hits[0].object, w.damage, 1, now);
+        if (damage > 0) confirmHit(damage);
       }
+    }
+
+    /**
+     * Resolve one hitscan impact against whatever it struck: the opponent (PvP),
+     * a bot, or a target plate. Returns the damage dealt (0 if nothing was hit).
+     */
+    function applyImpact(object: THREE.Object3D, damage: number, headshotMultiplier: number, now: number): number {
+      if (object.userData.isRemotePlayer) {
+        if (!remoteAlive) return 0;
+        connection.send({ type: 'hit', damage, byShotId: 'gun-' + Math.random() });
+        return damage;
+      }
+      if (bots) {
+        const res = bots.hitTest(object, damage, headshotMultiplier, now);
+        if (res) {
+          if (res.headshot) showPopup('HEADSHOT', '#ffd166');
+          if (res.killed) {
+            audio.kill();
+            showPopup('ELIMINATED', '#7ee081');
+          }
+          return res.damage;
+        }
+      }
+      if (targets) {
+        const t = targets.hitTest(object, now);
+        if (t) {
+          practiceHits += 1;
+          showHitmarker();
+          showPopup(t.bullseye ? 'BULLSEYE +2' : '+1', t.bullseye ? '#ffd166' : '#9ad1ff');
+          audio.targetHit(t.bullseye);
+        }
+      }
+      return 0;
+    }
+
+    /** Spread for one shot: hip/scoped accuracy plus the movement penalty. */
+    function spreadForShot(w: WeaponDef, movementSpeed: number, now: number): number {
+      let base = w.spread ?? 0;
+      if (w.scopeOverlay && scoped) {
+        const hip = w.spread ?? 0;
+        const aimed = w.spreadScoped ?? hip;
+        const settle = settingsRef.current.scopeSettleMs;
+        const held = now - scopeStartAt;
+        let ramp = settle <= 0 ? 1 : Math.min(1, held / settle);
+        // Quickscopes: a shot fired straight after scoping in stays (nearly) accurate
+        if (settingsRef.current.allowQuickScope) ramp = Math.max(ramp, QUICK_SCOPE_ACCURACY);
+        base = hip + (aimed - hip) * ramp;
+      }
+      return shotSpreadForSpeed(base, movementSpeed);
     }
 
     function fireGun(w: WeaponDef) {
       kick = Math.min(kick + 1, 2);
       const rt = runtime[w.id];
       if (!rt || rt.reloading) return;
-      if (performance.now() - rt.lastFireAt < w.fireRateMs) return;
+      const now = performance.now();
+      // Firing inside the quickscope window cycles the bolt faster
+      const quickscoped = !!w.scopeOverlay && now - scopeStartAt <= QUICK_SCOPE_WINDOW_MS;
+      const fireDelay = quickscoped && w.quickScopeFireRateMs ? w.quickScopeFireRateMs : w.fireRateMs;
+      if (now - rt.lastFireAt < fireDelay) return;
       if (rt.ammo <= 0) {
+        audio.dryFire();
         tryReload();
         return;
       }
-      rt.ammo -= 1;
-      rt.lastFireAt = performance.now();
+      if (!infiniteAmmo) rt.ammo -= 1;
+      rt.lastFireAt = now;
       flashLight.intensity = 3.5;
+      practiceShots += 1;
+      audio.shot(w.id);
+      if (w.scopeOverlay) {
+        audio.boltCycle();
+        // Classic quickscope flow: the scope drops after every shot
+        if (settingsRef.current.autoUnscope) {
+          scoped = false;
+          audio.scopeOut();
+        }
+      }
 
       const dir = new THREE.Vector3();
       camera.getWorldDirection(dir);
       const origin = camera.position.clone();
       const movementSpeed = Math.hypot(physics.velocity.x, physics.velocity.z);
-      const spread = shotSpreadForSpeed(w.spread ?? 0, movementSpeed);
+      const spread = spreadForShot(w, movementSpeed, now);
       const pellets = w.pellets ?? 1;
       const spreadDirs = Array.from({ length: pellets }, () =>
         dir
@@ -604,6 +790,7 @@ export default function GameCanvas(props: GameCanvasProps) {
       });
 
       // All pellets of one shot are combined into a single hit confirmation
+      scene.updateMatrixWorld();
       let shotDamage = 0;
       for (const spreadDir of spreadDirs) {
         raycaster.set(origin, spreadDir);
@@ -612,10 +799,7 @@ export default function GameCanvas(props: GameCanvasProps) {
         if (hits.length > 0) {
           const hit = hits[0];
           spawnTracer(origin, hit.point, '#ffe08a');
-          if (hit.object.userData.isRemotePlayer && remoteAlive) {
-            connection.send({ type: 'hit', damage: w.damage, byShotId: 'gun-' + Math.random() });
-            shotDamage += w.damage;
-          }
+          shotDamage += applyImpact(hit.object, w.damage, w.headshotMultiplier ?? 1, now);
         } else {
           spawnTracer(origin, origin.clone().addScaledVector(spreadDir, w.range), '#ffe08a');
         }
@@ -664,25 +848,18 @@ export default function GameCanvas(props: GameCanvasProps) {
         const dir = new THREE.Vector3(...msg.dir);
         const w = getWeapon(msg.weaponId);
         spawnTracer(origin, origin.clone().addScaledVector(dir, w?.range ?? 40), '#ff8c69');
+        audio.distantShot(panFor(origin));
       } else if (msg.type === 'hit') {
-        if (!localAlive) return;
-        cancelHeal();
-        stats.damageTaken += Math.min(msg.damage, localHp);
-        localHp -= msg.damage;
-        flashDamage();
-        if (localHp <= 0 && !gameEnded) {
-          localHp = 0;
-          localAlive = false;
-          connection.send({ type: 'death' });
-          endMatch('lose');
-        }
+        damageLocalPlayer(msg.damage);
       } else if (msg.type === 'death') {
         if (!gameEnded) {
           remoteAlive = false;
           endMatch('win');
         }
       } else if (msg.type === 'explosion') {
-        spawnExplosionVisual(new THREE.Vector3(...msg.pos));
+        const pos = new THREE.Vector3(...msg.pos);
+        spawnExplosionVisual(pos);
+        audio.explosion(panFor(pos));
       }
     });
     const unsubClose = connection.onClose(() => {
@@ -691,6 +868,50 @@ export default function GameCanvas(props: GameCanvasProps) {
         propsRef.current.onGameOver('disconnected', { ...stats });
       }
     });
+
+    /** Damage from any source: the opponent in PvP, a bot in the range. */
+    function damageLocalPlayer(damage: number) {
+      if (!localAlive || gameEnded) return;
+      cancelHeal(); // any hit interrupts a medkit channel
+      stats.damageTaken += Math.min(damage, localHp);
+      localHp -= damage;
+      flashDamage();
+      audio.hurt();
+      if (localHp > 0) return;
+      localHp = 0;
+      localAlive = false;
+      audio.death();
+      if (isPractice) {
+        // The range has no win/lose state: respawn and keep practising.
+        practiceDeaths += 1;
+        bots?.notePlayerDeath(performance.now());
+        window.setTimeout(respawnPlayer, 900);
+      } else {
+        connection.send({ type: 'death' });
+        endMatch('lose');
+      }
+    }
+
+    function respawnPlayer() {
+      localHp = 100;
+      localAlive = true;
+      physics.position.set(localSpawn[0], localSpawn[1], localSpawn[2]);
+      physics.velocity.set(0, 0, 0);
+      physics.grounded = true;
+      physics.sliding = false;
+      physics.crouching = false;
+      physics.height = MOVE.standHeight;
+      medkitUsed = false;
+      medkitStatus = 'ready';
+      healing = false;
+      healElapsedMs = 0;
+      medkitNeedsRelease = false;
+      cancelInspect();
+      for (const id of Object.keys(runtime)) {
+        const w = getWeapon(id);
+        if (w) runtime[id] = { ammo: w.magSize, reloading: false, reloadEndsAt: 0, lastFireAt: -9999 };
+      }
+    }
 
     let dmgFlashUntil = 0;
     function flashDamage() {
@@ -713,11 +934,9 @@ export default function GameCanvas(props: GameCanvasProps) {
       lastTime = now;
 
       const s = settingsRef.current;
-      if (camera.fov !== s.fov) {
-        camera.fov = s.fov;
-        camera.updateProjectionMatrix();
-      }
+      audio.configure(s.volume, s.muted);
 
+      // ----- Pre-match countdown -----
       const cd = countdownRef.current;
       let counting = false;
       if (cd) {
@@ -727,11 +946,65 @@ export default function GameCanvas(props: GameCanvasProps) {
         if (label !== cd.shown) {
           cd.shown = label;
           setCountdownLabel(label);
-          if (label === 'GO') window.setTimeout(() => setCountdownLabel(null), 700);
+          if (label === 'GO') {
+            audio.matchStart();
+            window.setTimeout(() => setCountdownLabel(null), 700);
+          } else {
+            audio.beep(false);
+          }
         }
       }
 
       const menuOpen = menuOpenRef.current || counting;
+
+      // ----- Scope: input, smoothing, FOV -----
+      const curWeapon = currentWeapon();
+      const curRuntime = curWeapon ? runtime[curWeapon.id] : undefined;
+      const canScope = !!curWeapon && curWeapon.scopeOverlay === true && !curRuntime?.reloading && !healing;
+      const scopeKeyDown = !menuOpen && !gameEnded && localAlive && isDown('scope');
+      if (canScope) {
+        if (s.toggleScope) {
+          if (scopeKeyDown && !prevScopeKey) {
+            scoped = !scoped;
+            if (scoped) {
+              scopeStartAt = now;
+              audio.scopeIn();
+            } else {
+              audio.scopeOut();
+            }
+          }
+        } else if (scopeKeyDown && !scoped) {
+          scoped = true;
+          scopeStartAt = now;
+          audio.scopeIn();
+        } else if (!scopeKeyDown && scoped) {
+          scoped = false;
+          audio.scopeOut();
+        }
+      } else if (scoped) {
+        // Weapon changed, reload started, or a menu opened
+        scoped = false;
+        audio.scopeOut();
+      }
+      prevScopeKey = scopeKeyDown;
+
+      const scopeTarget = scoped ? 1 : 0;
+      scopeBlend += (scopeTarget - scopeBlend) * Math.min(1, 20 * dt);
+      if (Math.abs(scopeTarget - scopeBlend) < 0.003) scopeBlend = scopeTarget;
+
+      // Zoom is applied to the vertical FOV, so it works the same in stretched res
+      const desiredFov = scopedFov(s.fov, s.scopeZoom, scopeBlend);
+      if (Math.abs(camera.fov - desiredFov) > 0.01) {
+        camera.fov = desiredFov;
+        camera.updateProjectionMatrix();
+      }
+      if (scopeOverlayRef.current) {
+        const el = scopeOverlayRef.current;
+        el.style.opacity = String(scopeBlend);
+        el.style.visibility = scopeBlend > 0.01 ? 'visible' : 'hidden';
+      }
+      // The scope replaces the viewmodel with its own reticle
+      viewModel.root.visible = !(curWeapon?.scopeOverlay && scopeBlend > 0.35);
 
       if (!gameEnded && localAlive) {
         // Crouch: hold, or toggle on each press
@@ -745,6 +1018,7 @@ export default function GameCanvas(props: GameCanvasProps) {
         prevCrouchKey = crouchDown;
 
         const jumpDown = !menuOpen && isDown('jump');
+        const scopeScale = curWeapon?.scopedMoveScale ?? 1;
         const input: MoveInput = {
           forward: menuOpen ? 0 : (isDown('forward') ? 1 : 0) - (isDown('back') ? 1 : 0),
           right: menuOpen ? 0 : (isDown('right') ? 1 : 0) - (isDown('left') ? 1 : 0),
@@ -752,10 +1026,32 @@ export default function GameCanvas(props: GameCanvasProps) {
           crouch: crouchWanted,
           jumpPressed: jumpDown && !prevJumpKey,
           yaw,
+          // Scoping in slows you down, smoothly with the scope blend
+          speedScale: 1 + (scopeScale - 1) * scopeBlend,
         };
         prevJumpKey = jumpDown;
+        const groundedBefore = physics.grounded;
         stepPhysics(physics, input, dt);
+        const fallVy = physics.velocity.y;
         resolveGroundAndWalls(physics, solids, map.size);
+
+        // ----- Movement audio -----
+        const horizSpeedNow = Math.hypot(physics.velocity.x, physics.velocity.z);
+        if (!groundedBefore && physics.grounded) {
+          audio.land(Math.abs(fallVy) > 11);
+          lastStepAt = now;
+        } else if (groundedBefore && !physics.grounded && physics.velocity.y > 0) {
+          audio.jump();
+        }
+        if (physics.sliding && !wasSliding) audio.slide();
+        wasSliding = physics.sliding;
+        if (physics.grounded && !physics.sliding && horizSpeedNow > 1.4) {
+          const stepInterval = 400 - Math.min(190, horizSpeedNow * 11);
+          if (now - lastStepAt > stepInterval) {
+            lastStepAt = now;
+            audio.footstep();
+          }
+        }
 
         // Clear scroll-wheel keys so each tick is a single-frame press
         for (const k of pendingScrollReleases) {
@@ -786,19 +1082,16 @@ export default function GameCanvas(props: GameCanvasProps) {
         }
 
         // reload completion
-        const w = currentWeapon();
-        if (w) {
-          const rt = runtime[w.id];
-          if (rt && rt.reloading && now >= rt.reloadEndsAt) {
-            rt.reloading = false;
-            rt.ammo = w.magSize;
-          }
+        if (curWeapon && curRuntime && curRuntime.reloading && now >= curRuntime.reloadEndsAt) {
+          curRuntime.reloading = false;
+          curRuntime.ammo = curWeapon.magSize;
+          audio.reloadEnd();
         }
 
         if (flashLight.intensity > 0) flashLight.intensity = Math.max(0, flashLight.intensity - dt * 18);
 
-        // Network send
-        if (now - lastNetSend > 50) {
+        // Network send (practice has nobody to tell)
+        if (!isPractice && now - lastNetSend > 50) {
           lastNetSend = now;
           connection.send({
             type: 'player-state',
@@ -810,6 +1103,19 @@ export default function GameCanvas(props: GameCanvasProps) {
           });
         }
       }
+
+      // ----- Practice range simulation -----
+      if (bots) {
+        bots.update({
+          dt,
+          now,
+          playerPos: camera.position,
+          playerAlive: localAlive && !menuOpen,
+          onPlayerDamage: damageLocalPlayer,
+          onBotShot: (from, to) => spawnTracer(from, to, '#ff8c69'),
+        });
+      }
+      if (targets) targets.update(now);
 
       // grenades physics
       for (let i = grenades.length - 1; i >= 0; i--) {
@@ -838,14 +1144,16 @@ export default function GameCanvas(props: GameCanvasProps) {
       }
 
       // remote interpolation
-      const alpha = 1 - Math.exp(-14 * dt);
-      remoteGroup.position.lerp(remoteTarget.pos, alpha);
-      let dAngle = remoteTarget.rotY - remoteGroup.rotation.y;
-      dAngle = Math.atan2(Math.sin(dAngle), Math.cos(dAngle));
-      remoteGroup.rotation.y += dAngle * alpha;
-      capsule.scale.y = remoteTarget.crouching ? 0.65 : 1;
-      capsule.position.y = remoteTarget.crouching ? 0.75 : 0.95;
-      remoteGroup.visible = remoteAlive;
+      if (!isPractice) {
+        const alpha = 1 - Math.exp(-14 * dt);
+        remoteGroup.position.lerp(remoteTarget.pos, alpha);
+        let dAngle = remoteTarget.rotY - remoteGroup.rotation.y;
+        dAngle = Math.atan2(Math.sin(dAngle), Math.cos(dAngle));
+        remoteGroup.rotation.y += dAngle * alpha;
+        capsule.scale.y = remoteTarget.crouching ? 0.65 : 1;
+        capsule.position.y = remoteTarget.crouching ? 0.75 : 0.95;
+        remoteGroup.visible = remoteAlive;
+      }
 
       // Weapon viewmodel
       const held = currentWeapon();
@@ -890,11 +1198,28 @@ export default function GameCanvas(props: GameCanvasProps) {
           speed: Math.hypot(physics.velocity.x, physics.velocity.z),
           medkitStatus,
           medkitProgress: healing ? Math.min(1, healElapsedMs / healDurationMs) : 0,
-          connectionLost: !connection.isConnected(),
+          connectionLost: !isPractice && !connection.isConnected(),
           damageDealt: stats.damageDealt,
           damageTaken: stats.damageTaken,
           hits: stats.hits,
           score: propsRef.current.score,
+          scoped: scopeBlend > 0.5,
+          scopeZoom: scopeMagnification(settingsRef.current.scopeZoom),
+          infiniteAmmo,
+          practice: isPractice
+            ? {
+                mapName: map.name,
+                botKills: bots?.kills ?? 0,
+                botsAlive: bots?.aliveCount() ?? 0,
+                botTotal: botCount,
+                targetHits: targets?.hits ?? 0,
+                bullseyes: targets?.bullseyes ?? 0,
+                targetTotal: targets?.count ?? 0,
+                shots: practiceShots,
+                hitsOnTargetsOrBots: practiceHits + stats.hits,
+                deaths: practiceDeaths,
+              }
+            : undefined,
         });
       }
     }
@@ -930,6 +1255,7 @@ export default function GameCanvas(props: GameCanvasProps) {
   }, []);
 
   const bindings = props.settings.bindings;
+  const isPractice = (props.mode ?? 'pvp') === 'practice';
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-black">
       <style>{GAME_CSS}</style>
@@ -939,6 +1265,32 @@ export default function GameCanvas(props: GameCanvasProps) {
         className="pointer-events-none absolute inset-0 bg-red-600 opacity-0"
         style={{ boxShadow: 'inset 0 0 180px 60px rgba(220,38,38,0.6)' }}
       />
+
+      {/* Sniper scope: vignette + reticle. Opacity is driven from the game loop. */}
+      <div
+        ref={scopeOverlayRef}
+        className="pointer-events-none absolute inset-0 opacity-0"
+        style={{ visibility: 'hidden' }}
+      >
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 0 32vh, rgba(0,0,0,0.45) 38vh, rgba(0,0,0,0.99) 43vh)',
+          }}
+        />
+        <div className="absolute left-1/2 top-1/2 h-[64vh] w-[64vh] -translate-x-1/2 -translate-y-1/2 rounded-full border-[6px] border-black" />
+        <div className="absolute left-1/2 top-1/2 h-px w-[62vh] -translate-x-1/2 -translate-y-1/2 bg-black/85" />
+        <div className="absolute left-1/2 top-1/2 h-[62vh] w-px -translate-x-1/2 -translate-y-1/2 bg-black/85" />
+        <div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black" />
+        {[1, 2, 3, 4].map((i) => (
+          <span
+            key={i}
+            className="absolute left-1/2 top-1/2 h-1 w-1 rounded-full bg-black/80"
+            style={{ transform: `translate(-50%, ${i * 4.5}vh)` }}
+          />
+        ))}
+      </div>
 
       {/* Hitmarker */}
       <div
@@ -983,7 +1335,9 @@ export default function GameCanvas(props: GameCanvasProps) {
           <div className="w-80 space-y-3 rounded-xl border border-white/10 bg-slate-900/95 p-6 text-center text-white shadow-2xl">
             <h2 className="text-xl font-bold">Mouse released</h2>
             <p className="text-xs text-white/50">
-              The match is still running — your opponent can still hit you.
+              {isPractice
+                ? 'The range keeps running — bots still shoot back.'
+                : 'The match is still running — your opponent can still hit you.'}
             </p>
             <button
               onClick={() => {
@@ -1007,7 +1361,7 @@ export default function GameCanvas(props: GameCanvasProps) {
               onClick={() => props.onLeave()}
               className="w-full rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300 transition hover:bg-red-500/20"
             >
-              Leave match (forfeit)
+              {isPractice ? 'Leave practice range' : 'Leave match (forfeit)'}
             </button>
             <p className="pt-1 text-[11px] leading-relaxed text-white/40">{controlsSummary(bindings)}</p>
           </div>

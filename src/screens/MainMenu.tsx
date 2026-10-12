@@ -1,10 +1,12 @@
 export default function MainMenu({
   onHost,
   onJoin,
+  onPractice,
   onSettings,
 }: {
   onHost: () => void;
   onJoin: () => void;
+  onPractice: () => void;
   onSettings: () => void;
 }) {
   return (
@@ -30,6 +32,13 @@ export default function MainMenu({
             className="w-full rounded-xl border border-white/20 bg-white/5 px-6 py-4 text-lg font-bold text-white transition hover:bg-white/10 active:scale-[0.98]"
           >
             Join Room
+          </button>
+          <button
+            onClick={onPractice}
+            className="w-full rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-6 py-3.5 text-lg font-bold text-emerald-200 transition hover:bg-emerald-500/20 active:scale-[0.98]"
+          >
+            Practice Range
+            <span className="ml-2 text-xs font-semibold text-emerald-300/60">offline · bots + targets</span>
           </button>
           <button
             onClick={onSettings}

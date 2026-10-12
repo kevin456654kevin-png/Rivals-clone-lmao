@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "check": "esbuild check/check.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/check.mjs --log-level=warning && node node_modules/.cache/check.mjs"
   },
   "dependencies": {
     "@types/three": "^0.186.0",
