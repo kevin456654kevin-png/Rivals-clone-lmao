@@ -64,6 +64,14 @@ const GAME_CSS = `
 /** Pre-match countdown length. Input stays frozen until it reaches zero. */
 const COUNTDOWN_SECONDS = 3;
 
+/** Added angular spread (radians) per u/s above the normal sprint-speed limit. */
+const SPEED_SPREAD_PER_UNIT = 0.006;
+
+function shotSpreadForSpeed(baseSpread: number, movementSpeed: number) {
+  const excessSpeed = Math.max(0, movementSpeed - MOVE.sprintSpeed);
+  return baseSpread + excessSpeed * SPEED_SPREAD_PER_UNIT;
+}
+
 function controlsSummary(b: Settings['bindings']) {
   const k = (a: ActionId) => keyLabel(b[a]);
   return `${k('forward')}${k('left')}${k('back')}${k('right')} move · ${k('jump')} jump · ${k('crouch')} crouch · ${k('sprint')} sprint · ${k('fire')} fire · ${k('reload')} reload · ${k('slot1')}–${k('slot4')} weapons · wheel switches`;
@@ -522,23 +530,28 @@ export default function GameCanvas(props: GameCanvasProps) {
       const dir = new THREE.Vector3();
       camera.getWorldDirection(dir);
       const origin = camera.position.clone();
+      const movementSpeed = Math.hypot(physics.velocity.x, physics.velocity.z);
+      const spread = shotSpreadForSpeed(w.spread ?? 0, movementSpeed);
+      const pellets = w.pellets ?? 1;
+      const spreadDirs = Array.from({ length: pellets }, () =>
+        dir
+          .clone()
+          .applyAxisAngle(new THREE.Vector3(1, 0, 0), (Math.random() - 0.5) * spread)
+          .applyAxisAngle(new THREE.Vector3(0, 1, 0), (Math.random() - 0.5) * spread),
+      );
+      // Let the opponent see a tracer along one of the actual spread directions.
+      const visibleShotDir = spreadDirs[0] ?? dir;
       connection.send({
         type: 'shoot',
         weaponId: w.id,
         origin: [origin.x, origin.y, origin.z],
-        dir: [dir.x, dir.y, dir.z],
+        dir: [visibleShotDir.x, visibleShotDir.y, visibleShotDir.z],
         id: Math.random().toString(36).slice(2),
       });
 
       // All pellets of one shot are combined into a single hit confirmation
       let shotDamage = 0;
-      const pellets = w.pellets ?? 1;
-      for (let i = 0; i < pellets; i++) {
-        const spread = w.spread ?? 0;
-        const spreadDir = dir
-          .clone()
-          .applyAxisAngle(new THREE.Vector3(1, 0, 0), (Math.random() - 0.5) * spread)
-          .applyAxisAngle(new THREE.Vector3(0, 1, 0), (Math.random() - 0.5) * spread);
+      for (const spreadDir of spreadDirs) {
         raycaster.set(origin, spreadDir);
         raycaster.far = w.range;
         const hits = raycaster.intersectObjects(raycastTargets, false);
