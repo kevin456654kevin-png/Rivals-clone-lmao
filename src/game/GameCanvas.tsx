@@ -61,6 +61,9 @@ const GAME_CSS = `
 }
 `;
 
+/** Pre-match countdown length. Input stays frozen until it reaches zero. */
+const COUNTDOWN_SECONDS = 3;
+
 function controlsSummary(b: Settings['bindings']) {
   const k = (a: ActionId) => keyLabel(b[a]);
   return `${k('forward')}${k('left')}${k('back')}${k('right')} move · ${k('jump')} jump · ${k('crouch')} crouch · ${k('sprint')} sprint · ${k('fire')} fire · ${k('reload')} reload · ${k('slot1')}–${k('slot4')} weapons · wheel switches`;
@@ -83,10 +86,14 @@ export default function GameCanvas(props: GameCanvasProps) {
   const [captured, setCaptured] = useState(false);
   const everCaptured = useRef(false);
   const [showSettings, setShowSettings] = useState(false);
+  // Pre-match countdown label ("3", "2", "1", "GO"); null once the overlay is dismissed
+  const [countdownLabel, setCountdownLabel] = useState<string | null>(String(COUNTDOWN_SECONDS));
   const pauseVisible = everCaptured.current && !captured;
   // Movement and firing are suspended while a menu is on screen
   const menuOpenRef = useRef(false);
   menuOpenRef.current = pauseVisible || showSettings;
+  // Input is frozen while the pre-match countdown runs (checked in the game loop)
+  const countdownRef = useRef<{ endsAt: number; shown: string } | null>(null);
 
   const [hud, setHud] = useState<HudState>({
     hp: 100,
@@ -613,6 +620,7 @@ export default function GameCanvas(props: GameCanvasProps) {
 
     // ----- Main loop -----
     let lastTime = performance.now();
+    countdownRef.current = { endsAt: lastTime + COUNTDOWN_SECONDS * 1000, shown: String(COUNTDOWN_SECONDS) };
     let lastNetSend = 0;
     let lastHudUpdate = 0;
     let rafId = 0;
@@ -631,7 +639,20 @@ export default function GameCanvas(props: GameCanvasProps) {
         camera.updateProjectionMatrix();
       }
 
-      const menuOpen = menuOpenRef.current;
+      const cd = countdownRef.current;
+      let counting = false;
+      if (cd) {
+        const remaining = cd.endsAt - now;
+        counting = remaining > 0;
+        const label = counting ? String(Math.ceil(remaining / 1000)) : 'GO';
+        if (label !== cd.shown) {
+          cd.shown = label;
+          setCountdownLabel(label);
+          if (label === 'GO') window.setTimeout(() => setCountdownLabel(null), 700);
+        }
+      }
+
+      const menuOpen = menuOpenRef.current || counting;
 
       if (!gameEnded && localAlive) {
         // Crouch: hold, or toggle on each press
@@ -825,6 +846,19 @@ export default function GameCanvas(props: GameCanvasProps) {
       </div>
       {/* Floating damage numbers are appended here imperatively */}
       <div ref={popupRef} className="pointer-events-none absolute inset-0" />
+
+      {countdownLabel !== null && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <span
+            key={countdownLabel}
+            className="select-none text-8xl font-black text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.6)]"
+            style={{ animation: 'countdown-pop 0.9s ease-out both' }}
+          >
+            {countdownLabel}
+          </span>
+          <style>{`@keyframes countdown-pop { 0% { transform: scale(1.6); opacity: 0 } 25% { transform: scale(1); opacity: 1 } 100% { transform: scale(0.9); opacity: 0.2 } }`}</style>
+        </div>
+      )}
 
       <HUD state={hud} />
 
