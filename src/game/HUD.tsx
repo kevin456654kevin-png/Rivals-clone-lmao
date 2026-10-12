@@ -10,21 +10,13 @@ export interface HudState {
   sliding: boolean;
   crouching: boolean;
   speed: number;
-  medkitStatus: 'ready' | 'charging' | 'interrupted' | 'used';
-  medkitProgress: number; // 0..1 while charging
+  medkitUsed: boolean;
   connectionLost: boolean;
   damageDealt: number;
   damageTaken: number;
   hits: number;
   score: { wins: number; losses: number };
 }
-
-const MEDKIT_LABEL: Record<HudState['medkitStatus'], string> = {
-  ready: 'Ready',
-  charging: 'Healing…',
-  interrupted: 'Interrupted',
-  used: 'Used',
-};
 
 export function HUD({ state }: { state: HudState }) {
   const hpPct = Math.max(0, Math.min(100, state.hp));
@@ -95,17 +87,8 @@ export function HUD({ state }: { state: HudState }) {
             )}
           </div>
         )}
-        {state.weapon?.id === 'medkit' && (
-          <div className="min-w-[10rem]">
-            <div className={`text-lg font-bold ${state.medkitStatus === 'interrupted' ? 'text-red-400' : 'text-white'}`}>
-              {MEDKIT_LABEL[state.medkitStatus]}
-            </div>
-            {state.medkitStatus === 'charging' && (
-              <div className="mt-1 h-2 w-full overflow-hidden rounded bg-white/15">
-                <div className="h-full bg-emerald-400" style={{ width: `${Math.round(state.medkitProgress * 100)}%` }} />
-              </div>
-            )}
-          </div>
+        {state.weapon && state.weapon.magSize === 0 && state.weapon.id === 'medkit' && (
+          <div className="text-lg font-bold text-white">{state.medkitUsed ? 'Used' : 'Ready'}</div>
         )}
       </div>
 
@@ -133,8 +116,8 @@ export function HUD({ state }: { state: HudState }) {
         </div>
       )}
 
-      {/* Speed readout (helps players learn movement timing) */}
-      <div className="absolute right-6 top-6 rounded bg-black/40 px-3 py-1 text-xs font-mono text-white/70">
+      {/* Speed readout — CS:GO style, bottom center */}
+      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 font-mono text-[11px] text-white/50">
         {Math.round(state.speed)} u/s
       </div>
     </div>

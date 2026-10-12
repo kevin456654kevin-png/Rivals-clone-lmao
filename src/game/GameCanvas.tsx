@@ -5,8 +5,6 @@ import type { GameResult, Loadout, MapDef, MatchStats, NetMessage, Role, WeaponD
 import { getWeapon } from '../data/weapons';
 import { BASE_LOOK_SPEED, keyLabel, type ActionId, type Settings } from '../data/settings';
 import { buildMap } from './mapBuilder';
-import { ViewModel, inspectDurationMs } from './viewmodels';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { solidAt, groundHeight } from './collision';
 import { createPhysicsState, MOVE, resolveGroundAndWalls, stepPhysics, type MoveInput } from './movement';
 import { HUD, type HudState } from './HUD';
@@ -66,9 +64,17 @@ const GAME_CSS = `
 /** Pre-match countdown length. Input stays frozen until it reaches zero. */
 const COUNTDOWN_SECONDS = 3;
 
+/** Added angular spread (radians) per u/s above the normal sprint-speed limit. */
+const SPEED_SPREAD_PER_UNIT = 0.006;
+
+function shotSpreadForSpeed(baseSpread: number, movementSpeed: number) {
+  const excessSpeed = Math.max(0, movementSpeed - MOVE.sprintSpeed);
+  return baseSpread + excessSpeed * SPEED_SPREAD_PER_UNIT;
+}
+
 function controlsSummary(b: Settings['bindings']) {
   const k = (a: ActionId) => keyLabel(b[a]);
-  return `${k('forward')}${k('left')}${k('back')}${k('right')} move · ${k('jump')} jump · ${k('crouch')} crouch · ${k('sprint')} sprint · ${k('fire')} fire · ${k('reload')} reload · ${k('inspect')} inspect · ${k('slot1')}–${k('slot4')} weapons · wheel switches`;
+  return `${k('forward')}${k('left')}${k('back')}${k('right')} move · ${k('jump')} jump · ${k('crouch')} crouch · ${k('sprint')} sprint · ${k('fire')} fire · ${k('reload')} reload · ${k('slot1')}–${k('slot4')} weapons · wheel switches`;
 }
 
 export default function GameCanvas(props: GameCanvasProps) {
@@ -107,8 +113,7 @@ export default function GameCanvas(props: GameCanvasProps) {
     sliding: false,
     crouching: false,
     speed: 0,
-    medkitStatus: 'ready',
-    medkitProgress: 0,
+    medkitUsed: false,
     connectionLost: false,
     damageDealt: 0,
     damageTaken: 0,
@@ -213,14 +218,15 @@ export default function GameCanvas(props: GameCanvasProps) {
     let remoteAlive = true;
 
     // ----- Weapon viewmodel -----
-    // Reflections for the metal parts of the viewmodel
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
-    const viewModel = new ViewModel(camera, envMap);
+    const vmGroup = new THREE.Group();
+    camera.add(vmGroup);
     scene.add(camera);
-    let vmBobX = 0;
-    let vmBobY = 0;
+    const vmMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.18, 0.55),
+      new THREE.MeshStandardMaterial({ color: '#444' }),
+    );
+    vmGroup.add(vmMesh);
+    vmGroup.position.set(0.28, -0.28, -0.55);
 
     const flashLight = new THREE.PointLight('#ffddaa', 0, 6);
     camera.add(flashLight);
@@ -234,18 +240,7 @@ export default function GameCanvas(props: GameCanvasProps) {
     let prevCrouchKey = false;
     let crouchLatched = false;
     let firedSemiThisPress = false;
-    // Inspect: a purely cosmetic animation that does not block movement
-    let inspectStart = -1; // performance.now() when it began, -1 when idle
-    let inspectId: string | null = null;
-    // Medkit channel
-    let healing = false;
-    let healElapsedMs = 0;
-    let healDurationMs = 4000;
-    let medkitStatus: 'ready' | 'charging' | 'interrupted' | 'used' = 'ready';
-    let medkitNeedsRelease = false; // after an interruption, fire must be released before healing again
-    // Feel: recoil kick and melee swing
-    let kick = 0;
-    let swingAt = -1e9;
+    const pendingScrollReleases = new Set<string>();
 
     const isDown = (a: ActionId) => !!keys[settingsRef.current.bindings[a]];
     const captured = () => document.pointerLockElement === canvas;
@@ -281,7 +276,6 @@ export default function GameCanvas(props: GameCanvasProps) {
       keys[e.code] = true;
       if (e.repeat || menuOpenRef.current) return;
       if (e.code === b.reload) tryReload();
-      if (e.code === b.inspect) startInspect();
       for (let i = 0; i < SLOT_ACTIONS.length; i++) {
         if (e.code === b[SLOT_ACTIONS[i]]) selectSlot(i);
       }
@@ -302,7 +296,16 @@ export default function GameCanvas(props: GameCanvasProps) {
     }
     function onWheel(e: WheelEvent) {
       if (!captured() || menuOpenRef.current) return;
-      cycleSlot(e.deltaY > 0 ? 1 : -1);
+      const dir = e.deltaY > 0 ? 'ScrollDown' : 'ScrollUp';
+      // Register as a key so isDown('jump') etc. picks it up
+      keys[dir] = true;
+      pendingScrollReleases.add(dir);
+      // Only cycle weapons if the scroll direction isn't bound to an action
+      const b = settingsRef.current.bindings;
+      const isBound = Object.values(b).includes(dir);
+      if (!isBound) {
+        cycleSlot(e.deltaY > 0 ? 1 : -1);
+      }
     }
     function onContextMenu(e: Event) {
       if (captured()) e.preventDefault();
@@ -337,26 +340,10 @@ export default function GameCanvas(props: GameCanvasProps) {
     }
 
     function selectSlot(i: number) {
-      if (healing || !slotWeapons[i]) return;
-      if (i !== currentSlotIdx) cancelInspect();
-      currentSlotIdx = i;
-    }
-
-    function startInspect() {
-      if (healing || gameEnded || !localAlive) return;
-      const w = currentWeapon();
-      if (!w || w.id === 'medkit') return;
-      inspectStart = performance.now();
-      inspectId = w.id;
-    }
-
-    function cancelInspect() {
-      inspectStart = -1;
+      if (slotWeapons[i]) currentSlotIdx = i;
     }
 
     function cycleSlot(dir: number) {
-      if (healing) return;
-      cancelInspect();
       const avail = [0, 1, 2, 3].filter((i) => slotWeapons[i]);
       if (avail.length === 0) return;
       const pos = avail.indexOf(currentSlotIdx);
@@ -366,10 +353,9 @@ export default function GameCanvas(props: GameCanvasProps) {
 
     function tryReload() {
       const w = currentWeapon();
-      if (!w || w.magSize <= 0 || healing) return;
+      if (!w || w.magSize <= 0) return;
       const rt = runtime[w.id];
       if (!rt || rt.reloading || rt.ammo >= w.magSize) return;
-      cancelInspect();
       rt.reloading = true;
       rt.reloadEndsAt = performance.now() + w.reloadMs;
     }
@@ -505,29 +491,9 @@ export default function GameCanvas(props: GameCanvasProps) {
       }
     }
 
-    // The medkit is a channel: hold it for `channelMs`. Any hit cancels it, and a
-    // cancelled channel is not consumed.
-    function startMedkit(w: WeaponDef) {
-      if (medkitUsed || healing || medkitNeedsRelease) return;
-      healing = true;
-      healElapsedMs = 0;
-      healDurationMs = w.channelMs ?? 4000;
-      medkitStatus = 'charging';
-      cancelInspect();
-    }
-
-    function cancelHeal() {
-      if (!healing) return;
-      healing = false;
-      healElapsedMs = 0;
-      medkitStatus = 'interrupted';
-      medkitNeedsRelease = true;
-    }
-
-    function finishHeal() {
-      healing = false;
+    function useMedkit() {
+      if (medkitUsed) return;
       medkitUsed = true;
-      medkitStatus = 'used';
       localHp = Math.min(100, localHp + 50);
     }
 
@@ -537,7 +503,6 @@ export default function GameCanvas(props: GameCanvasProps) {
       const rt = runtime[w.id];
       if (rt && performance.now() - rt.lastFireAt < w.fireRateMs) return;
       if (rt) rt.lastFireAt = performance.now();
-      swingAt = performance.now();
       const dir = new THREE.Vector3();
       camera.getWorldDirection(dir);
       raycaster.set(camera.position, dir);
@@ -551,7 +516,6 @@ export default function GameCanvas(props: GameCanvasProps) {
     }
 
     function fireGun(w: WeaponDef) {
-      kick = Math.min(kick + 1, 2);
       const rt = runtime[w.id];
       if (!rt || rt.reloading) return;
       if (performance.now() - rt.lastFireAt < w.fireRateMs) return;
@@ -566,23 +530,28 @@ export default function GameCanvas(props: GameCanvasProps) {
       const dir = new THREE.Vector3();
       camera.getWorldDirection(dir);
       const origin = camera.position.clone();
+      const movementSpeed = Math.hypot(physics.velocity.x, physics.velocity.z);
+      const spread = shotSpreadForSpeed(w.spread ?? 0, movementSpeed);
+      const pellets = w.pellets ?? 1;
+      const spreadDirs = Array.from({ length: pellets }, () =>
+        dir
+          .clone()
+          .applyAxisAngle(new THREE.Vector3(1, 0, 0), (Math.random() - 0.5) * spread)
+          .applyAxisAngle(new THREE.Vector3(0, 1, 0), (Math.random() - 0.5) * spread),
+      );
+      // Let the opponent see a tracer along one of the actual spread directions.
+      const visibleShotDir = spreadDirs[0] ?? dir;
       connection.send({
         type: 'shoot',
         weaponId: w.id,
         origin: [origin.x, origin.y, origin.z],
-        dir: [dir.x, dir.y, dir.z],
+        dir: [visibleShotDir.x, visibleShotDir.y, visibleShotDir.z],
         id: Math.random().toString(36).slice(2),
       });
 
       // All pellets of one shot are combined into a single hit confirmation
       let shotDamage = 0;
-      const pellets = w.pellets ?? 1;
-      for (let i = 0; i < pellets; i++) {
-        const spread = w.spread ?? 0;
-        const spreadDir = dir
-          .clone()
-          .applyAxisAngle(new THREE.Vector3(1, 0, 0), (Math.random() - 0.5) * spread)
-          .applyAxisAngle(new THREE.Vector3(0, 1, 0), (Math.random() - 0.5) * spread);
+      for (const spreadDir of spreadDirs) {
         raycaster.set(origin, spreadDir);
         raycaster.far = w.range;
         const hits = raycaster.intersectObjects(raycastTargets, false);
@@ -603,14 +572,13 @@ export default function GameCanvas(props: GameCanvasProps) {
 
     function handleFireInput(fireHeld: boolean) {
       const w = currentWeapon();
-      if (!w || !fireHeld || gameEnded || !localAlive || healing) return;
-      cancelInspect();
+      if (!w || !fireHeld || gameEnded || !localAlive) return;
       if (w.category === 'melee') {
         meleeAttack();
       } else if (w.id === 'grenade') {
         throwGrenade();
       } else if (w.id === 'medkit') {
-        startMedkit(w);
+        useMedkit();
       } else if (w.magSize > 0) {
         if (w.automatic) {
           fireGun(w);
@@ -643,7 +611,6 @@ export default function GameCanvas(props: GameCanvasProps) {
         spawnTracer(origin, origin.clone().addScaledVector(dir, w?.range ?? 40), '#ff8c69');
       } else if (msg.type === 'hit') {
         if (!localAlive) return;
-        cancelHeal();
         stats.damageTaken += Math.min(msg.damage, localHp);
         localHp -= msg.damage;
         flashDamage();
@@ -734,6 +701,12 @@ export default function GameCanvas(props: GameCanvasProps) {
         stepPhysics(physics, input, dt);
         resolveGroundAndWalls(physics, solids, map.size);
 
+        // Clear scroll-wheel keys so each tick is a single-frame press
+        for (const k of pendingScrollReleases) {
+          keys[k] = false;
+        }
+        pendingScrollReleases.clear();
+
         camera.position.set(physics.position.x, physics.position.y + physics.height - 0.08, physics.position.z);
         camera.rotation.y = yaw;
         camera.rotation.x = pitch;
@@ -742,19 +715,12 @@ export default function GameCanvas(props: GameCanvasProps) {
         const horizSpeed = Math.hypot(physics.velocity.x, physics.velocity.z);
         const bobT = now * 0.012;
         const bobAmount = Math.min(horizSpeed / MOVE.sprintSpeed, 1.3);
-        vmBobY = Math.sin(bobT) * 0.012 * bobAmount;
-        vmBobX = Math.cos(bobT * 0.5) * 0.008 * bobAmount;
+        vmGroup.position.y = -0.28 + Math.sin(bobT) * 0.012 * bobAmount;
+        vmGroup.position.x = 0.28 + Math.cos(bobT * 0.5) * 0.008 * bobAmount;
 
         const fireHeld = !menuOpen && isDown('fire');
-        if (!fireHeld) {
-          firedSemiThisPress = false;
-          medkitNeedsRelease = false;
-        }
+        if (!fireHeld) firedSemiThisPress = false;
         handleFireInput(fireHeld);
-        if (healing && !menuOpen) {
-          healElapsedMs += dt * 1000;
-          if (healElapsedMs >= healDurationMs) finishHeal();
-        }
 
         // reload completion
         const w = currentWeapon();
@@ -818,21 +784,6 @@ export default function GameCanvas(props: GameCanvasProps) {
       capsule.position.y = remoteTarget.crouching ? 0.75 : 0.95;
       remoteGroup.visible = remoteAlive;
 
-      // Weapon viewmodel
-      const held = currentWeapon();
-      viewModel.show(held?.id ?? null, held?.color ?? '#444444', now);
-      if (inspectStart >= 0 && now - inspectStart >= inspectDurationMs(inspectId ?? '')) inspectStart = -1;
-      kick *= Math.exp(-14 * dt);
-      viewModel.update(now, dt, {
-        bobX: vmBobX,
-        bobY: vmBobY,
-        inspectId,
-        inspectT: inspectStart >= 0 ? (now - inspectStart) / inspectDurationMs(inspectId ?? '') : null,
-        healing,
-        kick,
-        swing: (now - swingAt) / 260,
-      });
-
       renderer.render(scene, camera);
 
       if (dmgOverlayRef.current) {
@@ -859,8 +810,7 @@ export default function GameCanvas(props: GameCanvasProps) {
           sliding: physics.sliding,
           crouching: physics.crouching && !physics.sliding,
           speed: Math.hypot(physics.velocity.x, physics.velocity.z),
-          medkitStatus,
-          medkitProgress: healing ? Math.min(1, healElapsedMs / healDurationMs) : 0,
+          medkitUsed,
           connectionLost: !connection.isConnected(),
           damageDealt: stats.damageDealt,
           damageTaken: stats.damageTaken,
@@ -893,8 +843,6 @@ export default function GameCanvas(props: GameCanvasProps) {
       window.removeEventListener('resize', layout);
       if (document.pointerLockElement === canvas) document.exitPointerLock();
       mount.removeChild(canvas);
-      viewModel.dispose();
-      envMap.dispose();
       renderer.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

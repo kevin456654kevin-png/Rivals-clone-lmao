@@ -8,7 +8,6 @@ export const ACTIONS = [
   { id: 'sprint', label: 'Sprint', group: 'Movement' },
   { id: 'fire', label: 'Fire / use', group: 'Combat' },
   { id: 'reload', label: 'Reload', group: 'Combat' },
-  { id: 'inspect', label: 'Inspect weapon', group: 'Combat' },
   { id: 'slot1', label: 'Slot 1', group: 'Weapons' },
   { id: 'slot2', label: 'Slot 2', group: 'Weapons' },
   { id: 'slot3', label: 'Slot 3', group: 'Weapons' },
@@ -27,7 +26,6 @@ export const DEFAULT_BINDINGS: Record<ActionId, string> = {
   sprint: 'ShiftLeft',
   fire: 'Mouse0',
   reload: 'KeyR',
-  inspect: 'KeyF',
   slot1: 'Digit1',
   slot2: 'Digit2',
   slot3: 'Digit3',
@@ -143,6 +141,8 @@ const KEY_NAMES: Record<string, string> = {
   Mouse2: 'Middle Mouse',
   Mouse3: 'Mouse 4',
   Mouse4: 'Mouse 5',
+  ScrollDown: 'Scroll ↓',
+  ScrollUp: 'Scroll ↑',
 };
 
 export function keyLabel(code: string): string {
