@@ -124,11 +124,19 @@ export default function SettingsPanel({
       onChange(withBinding(settings, capturing, `Mouse${e.button}`));
       setCapturing(null);
     };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onChange(withBinding(settings, capturing, e.deltaY > 0 ? 'ScrollDown' : 'ScrollUp'));
+      setCapturing(null);
+    };
     window.addEventListener('keydown', onKey, true);
     window.addEventListener('mousedown', onMouse, true);
+    window.addEventListener('wheel', onWheel, true);
     return () => {
       window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('mousedown', onMouse, true);
+      window.removeEventListener('wheel', onWheel, true);
     };
   }, [capturing, settings, onChange]);
 

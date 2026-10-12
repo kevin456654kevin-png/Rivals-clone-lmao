@@ -232,6 +232,7 @@ export default function GameCanvas(props: GameCanvasProps) {
     let prevCrouchKey = false;
     let crouchLatched = false;
     let firedSemiThisPress = false;
+    const pendingScrollReleases = new Set<string>();
 
     const isDown = (a: ActionId) => !!keys[settingsRef.current.bindings[a]];
     const captured = () => document.pointerLockElement === canvas;
@@ -287,7 +288,16 @@ export default function GameCanvas(props: GameCanvasProps) {
     }
     function onWheel(e: WheelEvent) {
       if (!captured() || menuOpenRef.current) return;
-      cycleSlot(e.deltaY > 0 ? 1 : -1);
+      const dir = e.deltaY > 0 ? 'ScrollDown' : 'ScrollUp';
+      // Register as a key so isDown('jump') etc. picks it up
+      keys[dir] = true;
+      pendingScrollReleases.add(dir);
+      // Only cycle weapons if the scroll direction isn't bound to an action
+      const b = settingsRef.current.bindings;
+      const isBound = Object.values(b).includes(dir);
+      if (!isBound) {
+        cycleSlot(e.deltaY > 0 ? 1 : -1);
+      }
     }
     function onContextMenu(e: Event) {
       if (captured()) e.preventDefault();
@@ -677,6 +687,12 @@ export default function GameCanvas(props: GameCanvasProps) {
         prevJumpKey = jumpDown;
         stepPhysics(physics, input, dt);
         resolveGroundAndWalls(physics, solids, map.size);
+
+        // Clear scroll-wheel keys so each tick is a single-frame press
+        for (const k of pendingScrollReleases) {
+          keys[k] = false;
+        }
+        pendingScrollReleases.clear();
 
         camera.position.set(physics.position.x, physics.position.y + physics.height - 0.08, physics.position.z);
         camera.rotation.y = yaw;

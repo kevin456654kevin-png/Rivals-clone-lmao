@@ -4,10 +4,12 @@ import { type Solid, resolveCeilings, resolveHorizontal, resolveVertical } from 
 /**
  * Source-inspired movement: ground/air acceleration and crouch-sprint sliding.
  *
- * Bunny-hopping is deliberately throttled:
- *  - air strafing accelerates much more slowly than before (airAccel / airWishSpeed),
- *  - horizontal air speed is hard-capped (airSpeedLimit) so strafing can't build forever,
- *  - re-jumping within `bhopWindow` of landing costs horizontal speed (bhopSpeedRetention).
+ * Air strafing uses the Quake/Source model:
+ *  - low airWishSpeed (2.0) means the dot-product cap is tight, so each frame you
+ *    gain a consistent slice of speed in your wish direction,
+ *  - high airAccel (50) makes that slice feel snappy,
+ *  - turning your mouse into the strafe converts those slices into net speed gain,
+ *  - no hard speed cap — momentum is preserved across bunny hops.
  */
 
 export const MOVE = {
@@ -15,14 +17,13 @@ export const MOVE = {
   sprintSpeed: 9.2,
   crouchSpeed: 3.2,
   groundAccel: 14,
-  airAccel: 16, // was 70
-  airWishSpeed: 2.6, // caps the per-frame speed gain from air control (was 14.7)
-  airSpeedLimit: 11, // hard cap on horizontal speed while airborne
-  bhopWindow: 0.12, // seconds after landing in which a jump counts as a bunny hop
-  bhopSpeedRetention: 0.97, // horizontal speed kept per bunny hop (3% lost each time)
+  airAccel: 50, // high for responsive air-strafing (Source-style)
+  airWishSpeed: 2.0, // low wish cap so strafing compounds into real speed
+  bhopWindow: 0.15, // generous window for scroll-wheel bhopping
   friction: 7.5,
   gravity: 26,
   jumpVelocity: 9.2,
+  maxAirSpeed: 60, // soft ceiling — only clamps if you exceed this (prevents insanity)
   slideStartMinSpeed: 6.5,
   slideBoost: 1.18,
   slideFriction: 1.1,
@@ -148,21 +149,18 @@ export function stepPhysics(state: PlayerPhysicsState, input: MoveInput, dt: num
       accelerate(state.velocity, wishDir, maxSpeed, MOVE.groundAccel, dt);
     } else {
       accelerate(state.velocity, wishDir, MOVE.airWishSpeed, MOVE.airAccel, dt);
+      // Soft ceiling: only clamp if way above limit (preserves strafing momentum)
       const airSpeed = Math.hypot(state.velocity.x, state.velocity.z);
-      if (airSpeed > MOVE.airSpeedLimit) {
-        const s = MOVE.airSpeedLimit / airSpeed;
+      if (airSpeed > MOVE.maxAirSpeed) {
+        const s = MOVE.maxAirSpeed / airSpeed;
         state.velocity.x *= s;
         state.velocity.z *= s;
       }
     }
   }
 
-  // Jump. Re-jumping right after landing (bunny hop) bleeds horizontal speed.
+  // Jump. Bhop: re-jumping within the window after landing preserves all momentum.
   if (input.jumpPressed && state.grounded && !state.sliding) {
-    if (state.timeSinceLand < MOVE.bhopWindow) {
-      state.velocity.x *= MOVE.bhopSpeedRetention;
-      state.velocity.z *= MOVE.bhopSpeedRetention;
-    }
     state.velocity.y = MOVE.jumpVelocity;
     state.grounded = false;
   }

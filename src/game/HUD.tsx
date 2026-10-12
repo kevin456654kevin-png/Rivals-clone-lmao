@@ -116,8 +116,8 @@ export function HUD({ state }: { state: HudState }) {
         </div>
       )}
 
-      {/* Speed readout (helps players learn movement timing) */}
-      <div className="absolute right-6 top-6 rounded bg-black/40 px-3 py-1 text-xs font-mono text-white/70">
+      {/* Speed readout — CS:GO style, bottom center */}
+      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 font-mono text-[11px] text-white/50">
         {Math.round(state.speed)} u/s
       </div>
     </div>
