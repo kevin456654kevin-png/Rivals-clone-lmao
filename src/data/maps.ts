@@ -202,6 +202,42 @@ function facilitySolids(): SolidDef[] {
   return out;
 }
 
+// ---------- Practice Range (120 x 120) ----------
+// Wide open lanes for target practice: a raised firing deck behind the spawn,
+// lane dividers, cover blocks in the far field and movement blocks on the flanks.
+// The band |x| <= 22, z = -20..40 is deliberately empty — that's where the
+// target plates and bots live.
+const RG_WALL = '#4a5568';
+const RG_PLATFORM = '#5b6472';
+const RG_CRATE = '#6b5a3e';
+
+function rangeSolids(): SolidDef[] {
+  const out: SolidDef[] = [];
+
+  // Raised firing deck behind the spawn, with a ramp up onto it
+  out.push(box(0, -48, 30, 10, 3, RG_PLATFORM));
+  out.push(ramp(0, -39, 8, 8, '-z', 3, RG_PLATFORM));
+
+  // Lane dividers (outside the target band) so the lanes read clearly
+  out.push(wallX(-26, -34, 40, 1.6, RG_WALL));
+  out.push(wallX(26, -34, 40, 1.6, RG_WALL));
+
+  // Cover blocks in the far field for bot fights and peek practice
+  out.push(box(-36, 2, 4, 4, 2, RG_CRATE));
+  out.push(box(36, 2, 4, 4, 2, RG_CRATE));
+  out.push(box(-36, 26, 3, 7, 1.4, RG_WALL));
+  out.push(box(36, 26, 3, 7, 1.4, RG_WALL));
+  out.push(box(0, 52, 14, 2, 3.4, RG_WALL)); // far backstop
+
+  // Movement blocks on the flanks: hop on, bhop around, jump off
+  out.push(box(-48, 22, 10, 10, 2.2, RG_PLATFORM));
+  out.push(ramp(-48, 14, 6, 6, '+z', 2.2, RG_PLATFORM));
+  out.push(box(48, 22, 10, 10, 2.2, RG_PLATFORM));
+  out.push(ramp(48, 14, 6, 6, '+z', 2.2, RG_PLATFORM));
+
+  return out;
+}
+
 export const MAPS: MapDef[] = [
   {
     id: 'warehouse',
@@ -235,6 +271,28 @@ export const MAPS: MapDef[] = [
     skyColor: '#0b0f1a',
     floorColor: '#394049',
     solids: facilitySolids(),
+  },
+  {
+    id: 'range',
+    name: 'Practice Range',
+    description: 'Open lanes, a raised firing deck and cover blocks. Built for targets and bots.',
+    size: 120,
+    spawnA: [0, 0, -42],
+    spawnB: [0, 0, 42],
+    skyColor: '#2b3652',
+    floorColor: '#5c616b',
+    solids: rangeSolids(),
+  },
+  {
+    id: 'empty',
+    name: 'Empty Range',
+    description: 'Nothing but flat ground and perimeter walls. Test movement, sprays and quickscopes.',
+    size: 100,
+    spawnA: [0, 0, -40],
+    spawnB: [0, 0, 40],
+    skyColor: '#131a28',
+    floorColor: '#3f4652',
+    solids: [],
   },
 ];
 

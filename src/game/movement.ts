@@ -82,6 +82,8 @@ export interface MoveInput {
   crouch: boolean;
   jumpPressed: boolean; // edge-triggered this frame
   yaw: number;
+  /** Multiplier on the ground speed cap (e.g. scoped-in slowdown). Default 1. */
+  speedScale?: number;
 }
 
 export function stepPhysics(state: PlayerPhysicsState, input: MoveInput, dt: number) {
@@ -145,7 +147,9 @@ export function stepPhysics(state: PlayerPhysicsState, input: MoveInput, dt: num
         state.velocity.x *= scale;
         state.velocity.z *= scale;
       }
-      const maxSpeed = input.crouch ? MOVE.crouchSpeed : input.sprint ? MOVE.sprintSpeed : MOVE.walkSpeed;
+      const scale = input.speedScale ?? 1;
+      const maxSpeed =
+        (input.crouch ? MOVE.crouchSpeed : input.sprint ? MOVE.sprintSpeed : MOVE.walkSpeed) * scale;
       accelerate(state.velocity, wishDir, maxSpeed, MOVE.groundAccel, dt);
     } else {
       accelerate(state.velocity, wishDir, MOVE.airWishSpeed, MOVE.airAccel, dt);

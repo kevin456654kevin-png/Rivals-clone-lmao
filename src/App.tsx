@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { Connection } from './net/Connection';
-import type { GameResult, Loadout, MatchStats, NetMessage, Role, RoomConfig } from './types';
+import { OfflineConnection, type GameConnection } from './net/GameConnection';
+import type { GameResult, Loadout, MatchStats, NetMessage, PracticeConfig, Role, RoomConfig } from './types';
 import { getMap, MAPS } from './data/maps';
 import { loadSettings, saveSettings, type Settings } from './data/settings';
 import MainMenu from './screens/MainMenu';
@@ -8,11 +9,23 @@ import HostSetup from './screens/HostSetup';
 import JoinScreen from './screens/JoinScreen';
 import LobbyRoom from './screens/LobbyRoom';
 import LoadoutSelect from './screens/LoadoutSelect';
+import PracticeSetup from './screens/PracticeSetup';
 import GameOver from './screens/GameOver';
 import SettingsPanel from './screens/SettingsPanel';
 import GameCanvas from './game/GameCanvas';
 
-type Stage = 'menu' | 'settings' | 'host-setup' | 'join' | 'lobby' | 'loadout' | 'game' | 'gameover';
+type Stage =
+  | 'menu'
+  | 'settings'
+  | 'host-setup'
+  | 'join'
+  | 'lobby'
+  | 'loadout'
+  | 'game'
+  | 'gameover'
+  | 'practice-setup'
+  | 'practice-loadout'
+  | 'practice';
 
 const EMPTY_STATS: MatchStats = { damageDealt: 0, damageTaken: 0, hits: 0 };
 
@@ -26,6 +39,9 @@ export default function App() {
   }, []);
 
   const connRef = useRef<Connection | null>(null);
+  // Practice runs entirely offline against this no-op connection
+  const offlineConnRef = useRef<GameConnection | null>(null);
+  const [practiceConfig, setPracticeConfig] = useState<PracticeConfig | null>(null);
   const roleRef = useRef<Role>('host');
   const configRef = useRef<RoomConfig>({ mapId: MAPS[0].id, bannedWeapons: [] });
   const localLoadoutRef = useRef<Loadout | null>(null);
@@ -56,6 +72,17 @@ export default function App() {
     if (!connRef.current) connRef.current = new Connection();
     return connRef.current;
   }, []);
+
+  const getOfflineConn = useCallback(() => {
+    if (!offlineConnRef.current) offlineConnRef.current = new OfflineConnection();
+    return offlineConnRef.current;
+  }, []);
+
+  function leavePractice() {
+    setPracticeConfig(null);
+    localLoadoutRef.current = null;
+    setStage('menu');
+  }
 
   /** Clear loadouts and rematch flags, then go to loadout selection. */
   const enterLoadout = useCallback(() => {
@@ -175,6 +202,10 @@ export default function App() {
           attachHandlers(conn);
           setStage('join');
         }}
+        onPractice={() => {
+          localLoadoutRef.current = null;
+          setStage('practice-setup');
+        }}
         onSettings={() => setStage('settings')}
       />
     );
@@ -267,6 +298,52 @@ export default function App() {
           getConn().send({ type: 'loadout', loadout });
           checkBothLoadoutsReady();
         }}
+      />
+    );
+  }
+
+  // ---------- Practice setup ----------
+  if (stage === 'practice-setup') {
+    return (
+      <PracticeSetup
+        onBack={() => setStage('menu')}
+        onStart={(cfg) => {
+          setPracticeConfig(cfg);
+          setStage('practice-loadout');
+        }}
+      />
+    );
+  }
+
+  // ---------- Practice loadout ----------
+  if (stage === 'practice-loadout') {
+    return (
+      <LoadoutSelect
+        bannedWeapons={[]}
+        waitingOnOpponent={false}
+        onConfirm={(loadout) => {
+          localLoadoutRef.current = loadout;
+          setStage('practice');
+        }}
+      />
+    );
+  }
+
+  // ---------- Practice range (offline) ----------
+  if (stage === 'practice' && localLoadoutRef.current && practiceConfig) {
+    return (
+      <GameCanvas
+        connection={getOfflineConn()}
+        mode="practice"
+        practice={practiceConfig}
+        role="host"
+        map={getMap(practiceConfig.mapId)}
+        localLoadout={localLoadoutRef.current}
+        settings={settings}
+        score={score}
+        onSettingsChange={updateSettings}
+        onGameOver={leavePractice}
+        onLeave={leavePractice}
       />
     );
   }

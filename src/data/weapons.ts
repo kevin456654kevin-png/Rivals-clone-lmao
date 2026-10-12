@@ -70,8 +70,14 @@ export const WEAPONS: WeaponDef[] = [
     automatic: false,
     magSize: 5,
     reloadMs: 2400,
-    spread: 0.001,
-    description: 'One shot, one kill (almost). Slow to fire, deadly accurate.',
+    // Hip fire is deliberately wide: you have to scope in to land shots.
+    spread: 0.05,
+    spreadScoped: 0.0004,
+    scopeOverlay: true,
+    headshotMultiplier: 2.5,
+    quickScopeFireRateMs: 800,
+    scopedMoveScale: 0.45,
+    description: 'One shot, one kill. Useless from the hip — scope in (or quickscope) to be accurate.',
   },
   // Secondary
   {

@@ -4,8 +4,13 @@ import {
   ASPECT_OPTIONS,
   DEFAULT_SETTINGS,
   FOV_RANGE,
+  SCOPE_SENSITIVITY_RANGE,
+  SCOPE_SETTLE_RANGE,
+  SCOPE_ZOOM_RANGE,
   SENSITIVITY_RANGE,
+  VOLUME_RANGE,
   keyLabel,
+  scopeMagnification,
   withBinding,
   type ActionId,
   type Settings,
@@ -192,7 +197,9 @@ export default function SettingsPanel({
           <div className="mb-2 flex items-baseline justify-between">
             <div>
               <div className="font-semibold">Aspect ratio</div>
-              <div className="text-xs text-white/40">Letterboxes the game view; the HUD stays full-window</div>
+              <div className="text-xs text-white/40">
+                Renders the 3D view at this ratio — letterboxed, or stretched (below)
+              </div>
             </div>
           </div>
           <select
@@ -207,6 +214,85 @@ export default function SettingsPanel({
             ))}
           </select>
         </div>
+        <ToggleRow
+          label="Stretch to fill (stretched res)"
+          hint="Instead of letterboxing, the lower-resolution buffer is stretched across the whole window — the classic stretched-res look, where models appear wider and slide past faster. Pick 4:3 or 5:4 above."
+          checked={settings.stretchRes}
+          onChange={(v) => set({ stretchRes: v })}
+        />
+      </Section>
+
+      <Section title="Sniper scope">
+        <SliderRow
+          label="Scope zoom"
+          hint="0× = the scope overlay with no magnification at all. Scoping in is what makes the sniper accurate, at any zoom."
+          value={settings.scopeZoom}
+          display={
+            settings.scopeZoom === 0
+              ? '0× (no zoom)'
+              : `${scopeMagnification(settings.scopeZoom).toFixed(2)}× mag`
+          }
+          min={SCOPE_ZOOM_RANGE.min}
+          max={SCOPE_ZOOM_RANGE.max}
+          step={SCOPE_ZOOM_RANGE.step}
+          onChange={(v) => set({ scopeZoom: v })}
+        />
+        <SliderRow
+          label="Scoped sensitivity"
+          hint="Look-speed multiplier while scoped (applied on top of the zoom scaling)"
+          value={settings.scopeSensitivity}
+          display={`${settings.scopeSensitivity.toFixed(2)}×`}
+          min={SCOPE_SENSITIVITY_RANGE.min}
+          max={SCOPE_SENSITIVITY_RANGE.max}
+          step={SCOPE_SENSITIVITY_RANGE.step}
+          onChange={(v) => set({ scopeSensitivity: v })}
+        />
+        <SliderRow
+          label="Scope settle time"
+          hint="How long the scope takes to reach full accuracy after you scope in"
+          value={settings.scopeSettleMs}
+          display={`${settings.scopeSettleMs} ms`}
+          min={SCOPE_SETTLE_RANGE.min}
+          max={SCOPE_SETTLE_RANGE.max}
+          step={SCOPE_SETTLE_RANGE.step}
+          onChange={(v) => set({ scopeSettleMs: v })}
+        />
+        <ToggleRow
+          label="Allow quickscopes"
+          hint="Firing the instant the scope comes up stays nearly as accurate as a settled scope"
+          checked={settings.allowQuickScope}
+          onChange={(v) => set({ allowQuickScope: v })}
+        />
+        <ToggleRow
+          label="Auto-unscope after each shot"
+          hint="The scope drops after every scoped shot — the classic quickscope rhythm"
+          checked={settings.autoUnscope}
+          onChange={(v) => set({ autoUnscope: v })}
+        />
+        <ToggleRow
+          label="Toggle scope"
+          hint="Tap the scope key to aim instead of holding it"
+          checked={settings.toggleScope}
+          onChange={(v) => set({ toggleScope: v })}
+        />
+      </Section>
+
+      <Section title="Audio">
+        <SliderRow
+          label="Master volume"
+          hint="All weapon, movement and UI sounds are synthesised in-browser"
+          value={settings.volume}
+          display={`${Math.round(settings.volume * 100)}%`}
+          min={VOLUME_RANGE.min}
+          max={VOLUME_RANGE.max}
+          step={VOLUME_RANGE.step}
+          onChange={(v) => set({ volume: v })}
+        />
+        <ToggleRow
+          label="Mute everything"
+          checked={settings.muted}
+          onChange={(v) => set({ muted: v })}
+        />
       </Section>
 
       <Section title="Movement">

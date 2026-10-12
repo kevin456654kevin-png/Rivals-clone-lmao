@@ -12,9 +12,19 @@ export interface WeaponDef {
   magSize: number;
   reloadMs: number;
   pellets?: number; // for shotguns
-  spread?: number; // radians
+  spread?: number; // radians, hip fire
   projectileSpeed?: number; // for misc throwables, 0 = hitscan
   channelMs?: number; // for items that must be held to use (medkit)
+  /** Weapon can be scoped/ADS'd with the scope key. */
+  scopeOverlay?: boolean; // draws the sniper scope vignette
+  /** Spread in radians while scoped. Defaults to `spread`. */
+  spreadScoped?: number;
+  /** Damage multiplier for headshots. Defaults to 1. */
+  headshotMultiplier?: number;
+  /** Fire rate used when the shot lands inside the quickscope window. */
+  quickScopeFireRateMs?: number;
+  /** Movement speed multiplier while scoped. Defaults to 1. */
+  scopedMoveScale?: number;
   description: string;
 }
 
@@ -72,6 +82,28 @@ export interface Loadout {
 }
 
 export type Role = 'host' | 'client';
+
+/** PvP duel over the network, or the offline practice range. */
+export type GameMode = 'pvp' | 'practice';
+
+/** Options for the offline practice range. */
+export interface PracticeConfig {
+  mapId: string;
+  bots: number; // 0 = no bots, just targets
+  botSkill: number; // 0 (clueless) .. 1 (cracked)
+  targets: boolean; // static + moving target plates
+  movingTargets: boolean;
+  infiniteAmmo: boolean;
+}
+
+export const DEFAULT_PRACTICE: PracticeConfig = {
+  mapId: 'range',
+  bots: 2,
+  botSkill: 0.5,
+  targets: true,
+  movingTargets: true,
+  infiniteAmmo: true,
+};
 
 export interface RoomConfig {
   mapId: string;
