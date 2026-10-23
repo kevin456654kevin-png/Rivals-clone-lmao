@@ -1,0 +1,674 @@
+{
+  "fetchedAt": "2026-10-23T23:08:00Z",
+  "source": "https://octane.wtf/apisite/catalog/v1/search/items?subcategory=61&includeNotForSale=true&limit=100",
+  "detailsSource": "https://octane.wtf/apisite/develop/v1/assets?assetIds=...",
+  "catalogTotal": 39,
+  "count": 39,
+  "ids": [
+    330795,
+    275906,
+    202845,
+    160107,
+    147873,
+    145595,
+    139727,
+    137056,
+    80818,
+    72751,
+    72747,
+    70758,
+    46867,
+    46832,
+    42016,
+    41949,
+    31112,
+    7440,
+    7438,
+    7391,
+    4197,
+    3873,
+    3616,
+    3615,
+    3614,
+    3613,
+    3612,
+    3611,
+    3610,
+    3609,
+    3608,
+    3607,
+    3606,
+    3605,
+    3604,
+    3596,
+    3587,
+    3337,
+    3336
+  ],
+  "emotes": [
+    {
+      "id": 330795,
+      "assetId": 330795,
+      "name": "Swaying Sit",
+      "description": "",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-10-22T14:30:43.734123Z",
+      "updated": "2026-10-22T14:30:52.505802Z",
+      "catalogUrl": "https://octane.wtf/catalog/330795/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=330795&size=420x420&format=Png"
+    },
+    {
+      "id": 275906,
+      "assetId": 275906,
+      "name": "Raiden Fighting Armstrong [OG]",
+      "description": "Raiden Fighting Armstrong Emote\n\nJoin Daylight UGC!\n\nFAVORITE for CHEAPER\nJoin Daylight UGC for more emotes",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-10-19T16:42:19.811897Z",
+      "updated": "2026-10-19T16:42:19.811897Z",
+      "catalogUrl": "https://octane.wtf/catalog/275906/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=275906&size=420x420&format=Png"
+    },
+    {
+      "id": 202845,
+      "assetId": 202845,
+      "name": "Jeyke Funk Setalcix",
+      "description": "That Super Funk dance Jeyke did",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-10-15T10:51:54.954986Z",
+      "updated": "2026-10-15T10:51:58.972689Z",
+      "catalogUrl": "https://octane.wtf/catalog/202845/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=202845&size=420x420&format=Png"
+    },
+    {
+      "id": 160107,
+      "assetId": 160107,
+      "name": "Curtsy",
+      "description": "How do you do?",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-10-14T00:41:54.382543Z",
+      "updated": "2026-10-14T00:42:50.066308Z",
+      "catalogUrl": "https://octane.wtf/catalog/160107/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=160107&size=420x420&format=Png"
+    },
+    {
+      "id": 147873,
+      "assetId": 147873,
+      "name": "NLE CHOPPA",
+      "description": "",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-10-13T10:54:08.085355Z",
+      "updated": "2026-10-13T10:54:29.423974Z",
+      "catalogUrl": "https://octane.wtf/catalog/147873/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=147873&size=420x420&format=Png"
+    },
+    {
+      "id": 145595,
+      "assetId": 145595,
+      "name": "Just be competent",
+      "description": "sway away",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-10-12T19:42:48.643618Z",
+      "updated": "2026-10-12T19:43:11.002821Z",
+      "catalogUrl": "https://octane.wtf/catalog/145595/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=145595&size=420x420&format=Png"
+    },
+    {
+      "id": 139727,
+      "assetId": 139727,
+      "name": "Random Moves",
+      "description": "Dance with us",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-10-11T21:08:41.253723Z",
+      "updated": "2026-10-11T21:09:07.585633Z",
+      "catalogUrl": "https://octane.wtf/catalog/139727/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=139727&size=420x420&format=Png"
+    },
+    {
+      "id": 137056,
+      "assetId": 137056,
+      "name": "Distraction Dance",
+      "description": "Distraction Dance",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-10-11T19:02:58.630113Z",
+      "updated": "2026-10-11T19:03:44.504048Z",
+      "catalogUrl": "https://octane.wtf/catalog/137056/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=137056&size=420x420&format=Png"
+    },
+    {
+      "id": 80818,
+      "assetId": 80818,
+      "name": "healing f5ve i choose you",
+      "description": "",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-10-05T00:40:12.175633Z",
+      "updated": "2026-10-05T00:40:25.088847Z",
+      "catalogUrl": "https://octane.wtf/catalog/80818/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=80818&size=420x420&format=Png"
+    },
+    {
+      "id": 72751,
+      "assetId": 72751,
+      "name": "Old Town Road Dance - Lil Nas X (LNX)",
+      "description": "There's a new sheriff in town.",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-10-04T03:11:21.416129Z",
+      "updated": "2026-10-04T03:11:21.416129Z",
+      "catalogUrl": "https://octane.wtf/catalog/72751/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=72751&size=420x420&format=Png"
+    },
+    {
+      "id": 72747,
+      "assetId": 72747,
+      "name": "Country Line Dance - Lil Nas X (LNX)",
+      "description": "Our kind of hoedown.",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-10-04T03:10:00.997546Z",
+      "updated": "2026-10-04T03:10:00.997546Z",
+      "catalogUrl": "https://octane.wtf/catalog/72747/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=72747&size=420x420&format=Png"
+    },
+    {
+      "id": 70758,
+      "assetId": 70758,
+      "name": "Say so",
+      "description": "",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-10-03T18:09:14.109923Z",
+      "updated": "2026-10-03T18:09:26.63056Z",
+      "catalogUrl": "https://octane.wtf/catalog/70758/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=70758&size=420x420&format=Png"
+    },
+    {
+      "id": 46867,
+      "assetId": 46867,
+      "name": "Lady Gaga - Rain On Me",
+      "description": "",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-29T19:22:06.62618Z",
+      "updated": "2026-09-29T19:22:17.307319Z",
+      "catalogUrl": "https://octane.wtf/catalog/46867/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=46867&size=420x420&format=Png"
+    },
+    {
+      "id": 46832,
+      "assetId": 46832,
+      "name": "Garry's Dance",
+      "description": "garrys mod dance yeah yeah",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-29T19:16:44.282776Z",
+      "updated": "2026-09-29T19:17:13.220411Z",
+      "catalogUrl": "https://octane.wtf/catalog/46832/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=46832&size=420x420&format=Png"
+    },
+    {
+      "id": 42016,
+      "assetId": 42016,
+      "name": "Cat Walk / Model Walk",
+      "description": "ts emote pmo bro",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-30T05:21:01.939605Z",
+      "updated": "2026-09-30T05:22:18.847541Z",
+      "catalogUrl": "https://octane.wtf/catalog/42016/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=42016&size=420x420&format=Png"
+    },
+    {
+      "id": 41949,
+      "assetId": 41949,
+      "name": "I see Kareem Groove",
+      "description": ".",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-30T04:30:50.396968Z",
+      "updated": "2026-09-30T04:30:59.894773Z",
+      "catalogUrl": "https://octane.wtf/catalog/41949/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=41949&size=420x420&format=Png"
+    },
+    {
+      "id": 31112,
+      "assetId": 31112,
+      "name": "Top Rock",
+      "description": "Rock however you want, but these moves will take you to the top.",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-28T09:34:45.68857Z",
+      "updated": "2026-10-10T15:26:14.637892Z",
+      "catalogUrl": "https://octane.wtf/catalog/31112/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=31112&size=420x420&format=Png"
+    },
+    {
+      "id": 7440,
+      "assetId": 7440,
+      "name": "Applaud",
+      "description": "Bring it in for the GOAT.",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-26T04:33:15.301402Z",
+      "updated": "2026-09-26T04:33:24.241639Z",
+      "catalogUrl": "https://octane.wtf/catalog/7440/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=7440&size=420x420&format=Png"
+    },
+    {
+      "id": 7438,
+      "assetId": 7438,
+      "name": "Tilt",
+      "description": "A 15 degree tilt, to be exact.",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-26T04:32:07.331082Z",
+      "updated": "2026-09-26T04:33:12.938138Z",
+      "catalogUrl": "https://octane.wtf/catalog/7438/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=7438&size=420x420&format=Png"
+    },
+    {
+      "id": 7391,
+      "assetId": 7391,
+      "name": "Fashionable",
+      "description": "Pose! Pose! Find the camera! Flawless!",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-26T04:23:25.749926Z",
+      "updated": "2026-09-26T04:23:35.132531Z",
+      "catalogUrl": "https://octane.wtf/catalog/7391/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=7391&size=420x420&format=Png"
+    },
+    {
+      "id": 4197,
+      "assetId": 4197,
+      "name": "V Pose - Tommy Hilfiger",
+      "description": "The Everything Emote!",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T18:48:21.238725Z",
+      "updated": "2026-09-25T18:48:51.33969Z",
+      "catalogUrl": "https://octane.wtf/catalog/4197/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=4197&size=420x420&format=Png"
+    },
+    {
+      "id": 3873,
+      "assetId": 3873,
+      "name": "Friendly Sneaking (Steven)",
+      "description": "perform the iconic MC friendly ritual...",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T15:57:28.150334Z",
+      "updated": "2026-09-25T16:03:37.968197Z",
+      "catalogUrl": "https://octane.wtf/catalog/3873/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3873&size=420x420&format=Png"
+    },
+    {
+      "id": 3616,
+      "assetId": 3616,
+      "name": "Scuba Nick Wilde",
+      "description": "Scuuubaaaaa.",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T03:15:32.092503Z",
+      "updated": "2026-09-25T03:15:41.409538Z",
+      "catalogUrl": "https://octane.wtf/catalog/3616/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3616&size=420x420&format=Png"
+    },
+    {
+      "id": 3615,
+      "assetId": 3615,
+      "name": "Dougie",
+      "description": "Everybody Loves Me",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T03:15:20.043978Z",
+      "updated": "2026-09-25T03:15:26.296332Z",
+      "catalogUrl": "https://octane.wtf/catalog/3615/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3615&size=420x420&format=Png"
+    },
+    {
+      "id": 3614,
+      "assetId": 3614,
+      "name": "Nervy Dance",
+      "description": "",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T03:14:01.118222Z",
+      "updated": "2026-09-25T03:14:06.562194Z",
+      "catalogUrl": "https://octane.wtf/catalog/3614/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3614&size=420x420&format=Png"
+    },
+    {
+      "id": 3613,
+      "assetId": 3613,
+      "name": "Billy Bounce",
+      "description": "",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T03:13:21.621751Z",
+      "updated": "2026-09-25T03:13:29.175515Z",
+      "catalogUrl": "https://octane.wtf/catalog/3613/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3613&size=420x420&format=Png"
+    },
+    {
+      "id": 3612,
+      "assetId": 3612,
+      "name": "Kawaii Dance",
+      "description": "Legendary Kawaii Dance",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T03:12:39.689295Z",
+      "updated": "2026-09-25T03:12:45.760258Z",
+      "catalogUrl": "https://octane.wtf/catalog/3612/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3612&size=420x420&format=Png"
+    },
+    {
+      "id": 3611,
+      "assetId": 3611,
+      "name": "Rampage Dance",
+      "description": "",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T03:12:17.777136Z",
+      "updated": "2026-09-25T03:12:24.364957Z",
+      "catalogUrl": "https://octane.wtf/catalog/3611/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3611&size=420x420&format=Png"
+    },
+    {
+      "id": 3610,
+      "assetId": 3610,
+      "name": "how did he hit every beat",
+      "description": "Seriously How",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T03:11:09.063481Z",
+      "updated": "2026-09-25T03:11:17.712294Z",
+      "catalogUrl": "https://octane.wtf/catalog/3610/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3610&size=420x420&format=Png"
+    },
+    {
+      "id": 3609,
+      "assetId": 3609,
+      "name": "Jamal Brazil Groove",
+      "description": "Jamal's Little Step",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T03:08:28.147251Z",
+      "updated": "2026-09-25T03:08:33.131211Z",
+      "catalogUrl": "https://octane.wtf/catalog/3609/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3609&size=420x420&format=Png"
+    },
+    {
+      "id": 3608,
+      "assetId": 3608,
+      "name": "Money Hop Switch",
+      "description": "Seamless loop, optimized keyframes, no scale tracks.",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T03:07:48.038524Z",
+      "updated": "2026-09-25T03:07:54.141131Z",
+      "catalogUrl": "https://octane.wtf/catalog/3608/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3608&size=420x420&format=Png"
+    },
+    {
+      "id": 3607,
+      "assetId": 3607,
+      "name": "It's Gangnam Style!",
+      "description": "The style of the community!",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T03:04:15.577573Z",
+      "updated": "2026-09-25T03:04:24.309946Z",
+      "catalogUrl": "https://octane.wtf/catalog/3607/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3607&size=420x420&format=Png"
+    },
+    {
+      "id": 3606,
+      "assetId": 3606,
+      "name": "I got that feeling",
+      "description": "Got that feeling",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T03:04:04.751777Z",
+      "updated": "2026-09-25T03:04:09.514425Z",
+      "catalogUrl": "https://octane.wtf/catalog/3606/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3606&size=420x420&format=Png"
+    },
+    {
+      "id": 3605,
+      "assetId": 3605,
+      "name": "Chinese Dance: Da Koto Nai",
+      "description": "",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T03:03:38.698019Z",
+      "updated": "2026-09-25T03:04:00.642477Z",
+      "catalogUrl": "https://octane.wtf/catalog/3605/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3605&size=420x420&format=Png"
+    },
+    {
+      "id": 3604,
+      "assetId": 3604,
+      "name": "WISH NLE",
+      "description": "",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T03:01:47.543Z",
+      "updated": "2026-09-25T03:02:05.371059Z",
+      "catalogUrl": "https://octane.wtf/catalog/3604/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3604&size=420x420&format=Png"
+    },
+    {
+      "id": 3596,
+      "assetId": 3596,
+      "name": "Beautiful Day Dance",
+      "description": "HELLO!",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T01:56:13.948931Z",
+      "updated": "2026-09-25T01:56:48.031979Z",
+      "catalogUrl": "https://octane.wtf/catalog/3596/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3596&size=420x420&format=Png"
+    },
+    {
+      "id": 3587,
+      "assetId": 3587,
+      "name": "Moonwalk",
+      "description": "HEEE HEEEE",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-25T01:42:15.572743Z",
+      "updated": "2026-09-25T01:42:29.430561Z",
+      "catalogUrl": "https://octane.wtf/catalog/3587/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3587&size=420x420&format=Png"
+    },
+    {
+      "id": 3337,
+      "assetId": 3337,
+      "name": "test",
+      "description": "test",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-24T23:00:52.927422Z",
+      "updated": "2026-09-24T23:00:53.535466Z",
+      "catalogUrl": "https://octane.wtf/catalog/3337/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3337&size=420x420&format=Png"
+    },
+    {
+      "id": 3336,
+      "assetId": 3336,
+      "name": "test",
+      "description": "test",
+      "type": "EmoteAnimation",
+      "typeId": 61,
+      "creator": {
+        "type": "User",
+        "targetId": 1
+      },
+      "created": "2026-09-24T22:59:26.643468Z",
+      "updated": "2026-09-24T22:59:27.251058Z",
+      "catalogUrl": "https://octane.wtf/catalog/3336/item",
+      "thumbnailUrl": "https://octane.wtf/apisite/thumbnails/v1/assets?assetIds=3336&size=420x420&format=Png"
+    }
+  ]
+}
