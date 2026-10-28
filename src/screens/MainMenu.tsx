@@ -54,6 +54,13 @@ export default function MainMenu({
           that code — no servers, no sign-up, connection is made directly browser-to-browser. Matches start
           the moment both players lock in, and you can rematch straight from the results screen.
         </div>
+
+        <a
+          href="#/resultaat-generator"
+          className="block text-center text-xs text-white/30 underline-offset-2 transition hover:text-white/60 hover:underline"
+        >
+          TypelesOnline resultaat-generator
+        </a>
       </div>
     </div>
   );

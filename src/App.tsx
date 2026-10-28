@@ -13,6 +13,7 @@ import PracticeSetup from './screens/PracticeSetup';
 import GameOver from './screens/GameOver';
 import SettingsPanel from './screens/SettingsPanel';
 import GameCanvas from './game/GameCanvas';
+import ResultsGenerator from './results-generator/ResultsGenerator';
 
 type Stage =
   | 'menu'
@@ -29,7 +30,15 @@ type Stage =
 
 const EMPTY_STATS: MatchStats = { damageDealt: 0, damageTaken: 0, hits: 0 };
 
+/** Standalone tool, reachable at #/resultaat-generator (kept out of the game's state machine). */
 export default function App() {
+  if (typeof window !== 'undefined' && window.location.hash === '#/resultaat-generator') {
+    return <ResultsGenerator />;
+  }
+  return <GameApp />;
+}
+
+function GameApp() {
   const [stage, setStageState] = useState<Stage>('menu');
   // Mirrors `stage` for use inside network callbacks that outlive a render
   const stageRef = useRef<Stage>('menu');
